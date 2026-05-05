@@ -185,7 +185,7 @@ const WARROOM_ENABLED = warroomEnabled;
     <span class="summary-stat-val" id="sum-cost">-</span>
     <span class="summary-stat-label">Tokens Today</span>
   </div>
-  <div class="summary-stat clickable-card" onclick="document.getElementById('revenue-section').scrollIntoView({behavior:'smooth'})" style="cursor:pointer">
+  <div class="summary-stat clickable-card" onclick="document.getElementById('audit-section').scrollIntoView({behavior:'smooth'})" style="cursor:pointer">
     <span class="summary-stat-val" id="sum-revenue">-</span>
     <span class="summary-stat-label">Total Revenue</span>
   </div>
@@ -588,72 +588,94 @@ ${WARROOM_ENABLED ? `<div class="card" style="border:1px solid #1e3a5f">
 
 </div>
 
-<!-- Revenue Analytics (ClaudeClaw) -->
-<div id="revenue-section" class="mt-5 mb-8" style="display:none">
-  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Revenue Analytics<span class="info-tip"><span class="info-icon">ℹ️</span><span class="info-tooltip">YouTube CPM (Cost Per Mille) and revenue per project. Correlates script generation cost to video revenue.</span></span></h2>
+<!-- Audit & Analytics -->
+<div id="audit-section" class="mt-5 mb-8" style="display:none">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Audit & Analytics<span class="info-tip"><span class="info-icon">ℹ️</span><span class="info-tooltip">System audit log and revenue analytics. YouTube CPM (Cost Per Mille) and revenue per project.</span></span><button class="privacy-toggle" onclick="toggleSectionBlur('audit')" title="Toggle blur">&#128065;</button></h2>
 
-  <!-- Project Revenue Summary -->
-  <div class="card mb-3">
-    <div class="text-xs text-gray-400 mb-2">📊 Revenue by Project</div>
-    <div id="revenue-projects" style="overflow-x: auto">
-      <table style="width:100%; font-size:11px; border-collapse:collapse">
-        <thead>
-          <tr style="border-bottom:1px solid #333">
-            <th style="text-align:left; padding:6px">Project</th>
-            <th style="text-align:right; padding:6px">Videos</th>
-            <th style="text-align:right; padding:6px">Total Views</th>
-            <th style="text-align:right; padding:6px">Avg CPM</th>
-            <th style="text-align:right; padding:6px">Revenue</th>
-            <th style="text-align:right; padding:6px">Script Cost</th>
-            <th style="text-align:right; padding:6px">ROI</th>
-          </tr>
-        </thead>
-        <tbody id="revenue-projects-body">
-          <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">Loading...</td></tr>
-        </tbody>
-      </table>
+  <!-- Revenue Analytics Sub-section -->
+  <div id="revenue-subsection" style="display:none; margin-bottom:16px">
+    <!-- Project Revenue Summary -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">💰 Revenue by Project</div>
+      <div id="revenue-projects" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Project</th>
+              <th style="text-align:right; padding:6px">Videos</th>
+              <th style="text-align:right; padding:6px">Total Views</th>
+              <th style="text-align:right; padding:6px">Avg CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">Script Cost</th>
+              <th style="text-align:right; padding:6px">ROI</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-projects-body">
+            <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Top Videos by Revenue -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">🎬 Top Videos by Revenue</div>
+      <div id="revenue-videos" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Title</th>
+              <th style="text-align:right; padding:6px">Views</th>
+              <th style="text-align:right; padding:6px">CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">Impressions</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-videos-body">
+            <tr><td colspan="5" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Script to Revenue Correlation -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">📊 Script → Revenue ROI</div>
+      <div id="revenue-scripts" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Mission ID</th>
+              <th style="text-align:left; padding:6px">Project</th>
+              <th style="text-align:right; padding:6px">Script Cost</th>
+              <th style="text-align:right; padding:6px">Views</th>
+              <th style="text-align:right; padding:6px">CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">ROI</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-scripts-body">
+            <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <!-- Top Videos by Revenue -->
-  <div class="card mb-3">
-    <div class="text-xs text-gray-400 mb-2">🎬 Top Videos by Revenue</div>
-    <div id="revenue-videos" style="overflow-x: auto">
-      <table style="width:100%; font-size:11px; border-collapse:collapse">
-        <thead>
-          <tr style="border-bottom:1px solid #333">
-            <th style="text-align:left; padding:6px">Title</th>
-            <th style="text-align:right; padding:6px">Views</th>
-            <th style="text-align:right; padding:6px">CPM</th>
-            <th style="text-align:right; padding:6px">Revenue</th>
-            <th style="text-align:right; padding:6px">Impressions</th>
-          </tr>
-        </thead>
-        <tbody id="revenue-videos-body">
-          <tr><td colspan="5" style="text-align:center; padding:12px; color:#666">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Script to Revenue Correlation -->
+  <!-- Audit Log Sub-section -->
   <div class="card">
-    <div class="text-xs text-gray-400 mb-2">💰 Script → Revenue ROI</div>
-    <div id="revenue-scripts" style="overflow-x: auto">
+    <div class="text-xs text-gray-400 mb-2">📋 Audit Log</div>
+    <div id="audit-log" style="overflow-x: auto">
       <table style="width:100%; font-size:11px; border-collapse:collapse">
         <thead>
           <tr style="border-bottom:1px solid #333">
-            <th style="text-align:left; padding:6px">Mission ID</th>
-            <th style="text-align:left; padding:6px">Project</th>
-            <th style="text-align:right; padding:6px">Script Cost</th>
-            <th style="text-align:right; padding:6px">Views</th>
-            <th style="text-align:right; padding:6px">CPM</th>
-            <th style="text-align:right; padding:6px">Revenue</th>
-            <th style="text-align:right; padding:6px">ROI</th>
+            <th style="text-align:left; padding:6px">Time</th>
+            <th style="text-align:left; padding:6px">Agent</th>
+            <th style="text-align:left; padding:6px">Action</th>
           </tr>
         </thead>
-        <tbody id="revenue-scripts-body">
-          <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">Loading...</td></tr>
+        <tbody id="audit-log-body">
+          <tr><td colspan="3" style="text-align:center; padding:12px; color:#666">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -1084,32 +1106,48 @@ async function loadTokens() {
   }
 }
 
-async function loadRevenue() {
+async function loadAudit() {
   try {
-    const data = await api('/api/revenue');
-    if (data.projectRevenue && data.projectRevenue.length > 0) {
-      document.getElementById('revenue-section').style.display = '';
+    const data = await api('/api/audit?limit=10&offset=0');
+    const hasRevenue = data.revenue && (data.revenue.projectRevenue && data.revenue.projectRevenue.length > 0);
+    const hasAudit = data.entries && data.entries.length > 0;
+
+    if (hasRevenue || hasAudit) {
+      document.getElementById('audit-section').style.display = '';
     }
-    const projectsBody = document.getElementById('revenue-projects-body');
-    if (data.projectRevenue && data.projectRevenue.length > 0) {
-      projectsBody.innerHTML = data.projectRevenue.map(p => '<tr style="border-bottom:1px solid #222"><td style="padding:6px"><strong>' + escapeHtml(p.name || p.project_id) + '</strong></td><td style="text-align:right; padding:6px">' + (p.total_videos || 0) + '</td><td style="text-align:right; padding:6px">' + ((p.total_views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (p.avg_cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (p.total_revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">$' + (p.total_script_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (p.overall_roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (p.overall_roi || 0).toFixed(1) + 'x</td></tr>').join('');
-      const totalRev = data.projectRevenue.reduce((sum, p) => sum + (p.total_revenue_usd || 0), 0);
-      document.getElementById('sum-revenue').textContent = '$' + totalRev.toFixed(0);
+
+    // Load revenue data if available
+    if (hasRevenue) {
+      document.getElementById('revenue-subsection').style.display = '';
+
+      const projectsBody = document.getElementById('revenue-projects-body');
+      if (data.revenue.projectRevenue.length > 0) {
+        projectsBody.innerHTML = data.revenue.projectRevenue.map(p => '<tr style="border-bottom:1px solid #222"><td style="padding:6px"><strong>' + escapeHtml(p.name || p.project_id) + '</strong></td><td style="text-align:right; padding:6px">' + (p.total_videos || 0) + '</td><td style="text-align:right; padding:6px">' + ((p.total_views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (p.avg_cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (p.total_revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">$' + (p.total_script_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (p.overall_roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (p.overall_roi || 0).toFixed(1) + 'x</td></tr>').join('');
+        const totalRev = data.revenue.projectRevenue.reduce((sum, p) => sum + (p.total_revenue_usd || 0), 0);
+        document.getElementById('sum-revenue').textContent = '$' + totalRev.toFixed(0);
+      }
+
+      const videosBody = document.getElementById('revenue-videos-body');
+      if (data.revenue.topVideos && data.revenue.topVideos.length > 0) {
+        videosBody.innerHTML = data.revenue.topVideos.map(v => '<tr style="border-bottom:1px solid #222"><td style="padding:6px">' + escapeHtml(v.title.substring(0, 40)) + '</td><td style="text-align:right; padding:6px">' + ((v.view_count || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (v.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (v.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">' + ((v.impressions || 0).toLocaleString()) + '</td></tr>').join('');
+      }
+
+      const scriptsBody = document.getElementById('revenue-scripts-body');
+      if (data.revenue.scriptRevenue && data.revenue.scriptRevenue.length > 0) {
+        scriptsBody.innerHTML = data.revenue.scriptRevenue.map(s => '<tr style="border-bottom:1px solid #222"><td style="padding:6px; font-size:10px; color:#999">' + escapeHtml(s.mission_id || '-') + '</td><td style="padding:6px">' + escapeHtml(s.project_id || '-') + '</td><td style="text-align:right; padding:6px">$' + (s.total_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px">' + ((s.views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (s.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (s.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (s.roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (s.roi || 0).toFixed(1) + 'x</td></tr>').join('');
+      }
+    }
+
+    // Load audit log
+    const auditBody = document.getElementById('audit-log-body');
+    if (hasAudit) {
+      auditBody.innerHTML = data.entries.map(e => '<tr style="border-bottom:1px solid #222"><td style="padding:6px; font-size:10px; color:#6b7280">' + new Date(e.created_at).toLocaleTimeString() + '</td><td style="padding:6px; color:#a5b4fc"><strong>' + escapeHtml(e.agent_id || 'system') + '</strong></td><td style="padding:6px; color:#d4d4d8">' + escapeHtml(e.action || '') + '</td></tr>').join('');
     } else {
-      projectsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:12px; color:#666">No revenue data yet</td></tr>';
-      document.getElementById('sum-revenue').textContent = '$0';
-    }
-    const videosBody = document.getElementById('revenue-videos-body');
-    if (data.topVideos && data.topVideos.length > 0) {
-      videosBody.innerHTML = data.topVideos.map(v => '<tr style="border-bottom:1px solid #222"><td style="padding:6px">' + escapeHtml(v.title.substring(0, 40)) + '</td><td style="text-align:right; padding:6px">' + ((v.view_count || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (v.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (v.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">' + ((v.impressions || 0).toLocaleString()) + '</td></tr>').join('');
-    }
-    const scriptsBody = document.getElementById('revenue-scripts-body');
-    if (data.scriptRevenue && data.scriptRevenue.length > 0) {
-      scriptsBody.innerHTML = data.scriptRevenue.map(s => '<tr style="border-bottom:1px solid #222"><td style="padding:6px; font-size:10px; color:#999">' + escapeHtml(s.mission_id || '-') + '</td><td style="padding:6px">' + escapeHtml(s.project_id || '-') + '</td><td style="text-align:right; padding:6px">$' + (s.total_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px">' + ((s.views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (s.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (s.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (s.roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (s.roi || 0).toFixed(1) + 'x</td></tr>').join('');
+      auditBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:12px; color:#666">No audit entries</td></tr>';
     }
   } catch(e) {
-    console.error('Revenue load error', e);
-    document.getElementById('revenue-projects-body').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:12px; color:#f87171">Error loading revenue data</td></tr>';
+    console.error('Audit load error', e);
+    document.getElementById('audit-log-body').innerHTML = '<tr><td colspan="3" style="text-align:center; padding:12px; color:#f87171">Error loading audit data</td></tr>';
   }
 }
 
@@ -2556,7 +2594,7 @@ setInterval(loadMissionControl, 15000);
 async function refreshAll() {
   const btn = document.getElementById('refresh-btn').querySelector('svg');
   btn.classList.add('refresh-spin');
-  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadRevenue(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
+  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadAudit(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
   btn.classList.remove('refresh-spin');
   document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
 }
