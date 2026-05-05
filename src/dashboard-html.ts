@@ -687,7 +687,7 @@ ${WARROOM_ENABLED ? `<div class="card" style="border:1px solid #1e3a5f">
 </div><!-- end grid -->
 
 <!-- God's Eye Analytics (full width below grid) -->
-<div id="gods-eye-section" class="mt-5 mb-8" style="display:none">
+<div id="gods-eye-section" class="mt-8 mb-8" style="display:none">
   <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">God's Eye
     <span style="font-size:11px;color:#6b7280;font-weight:400;text-transform:none;letter-spacing:0"> — YouTube Intelligence</span>
     <span class="info-tip"><span class="info-icon">&#8505;</span><span class="info-tooltip">YouTube channel performance data ingested by the God's Eye agent. Ground truth for meta-learning and anti-slop decisions.</span></span>
@@ -1192,8 +1192,8 @@ async function loadGodsEye() {
       vBody.innerHTML = data.topVideos.map((v, i) => {
         const engColor = v.engagement_rate > 3 ? '#34d399' : v.engagement_rate > 1 ? '#f59e0b' : '#6b7280';
         return '<tr style="border-bottom:1px solid #1e1e1e">'
-          + '<td style="padding:5px 6px;color:#d4d4d8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(v.title) + '">'
-          + '<span style="color:#4b5563;margin-right:5px">' + (i + 1) + '.</span>' + escapeHtml(v.title.substring(0, 38)) + (v.title.length > 38 ? '…' : '') + '</td>'
+          + '<td style="padding:5px 6px;color:#d4d4d8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(v.title || '') + '">'
+          + '<span style="color:#4b5563;margin-right:5px">' + (i + 1) + '.</span>' + escapeHtml((v.title || '').substring(0, 38)) + ((v.title || '').length > 38 ? '…' : '') + '</td>'
           + '<td style="text-align:right;padding:5px 6px;color:#a5b4fc;white-space:nowrap">' + formatViews(v.view_count) + '</td>'
           + '<td style="text-align:right;padding:5px 6px;color:' + engColor + ';white-space:nowrap">' + (v.engagement_rate || 0).toFixed(2) + '%</td>'
           + '</tr>';
@@ -1206,11 +1206,11 @@ async function loadGodsEye() {
       cContainer.innerHTML = data.topComments.map(c =>
         '<div style="background:#111;border:1px solid #222;border-radius:8px;padding:8px 10px">'
         + '<div style="font-size:10px;color:#6b7280;margin-bottom:4px">'
-        + '<strong style="color:#a5b4fc">' + escapeHtml(c.author) + '</strong>'
+        + '<strong style="color:#a5b4fc">' + escapeHtml(c.author || '') + '</strong>'
         + ' &middot; ' + (c.like_count || 0) + ' likes'
         + ' &middot; <span style="color:#4b5563">' + escapeHtml((c.video_title || '').substring(0, 30)) + '…</span>'
         + '</div>'
-        + '<div style="font-size:11px;color:#d4d4d8;line-height:1.5">' + escapeHtml((c.text || '').substring(0, 120)) + (c.text?.length > 120 ? '…' : '') + '</div>'
+        + '<div style="font-size:11px;color:#d4d4d8;line-height:1.5">' + escapeHtml((c.text || '').substring(0, 120)) + ((c.text && c.text.length > 120) ? '…' : '') + '</div>'
         + '</div>'
       ).join('');
     }
