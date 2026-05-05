@@ -2930,6 +2930,57 @@ export function buildDashboardApp(botApi?: Api<RawApi>): Hono {
     return c.json({ entries: getRecentBlockedActions(limit) });
   });
 
+  // God's Eye analytics
+  app.get('/api/gods-eye', (c) => {
+    try {
+      const db = new Database(path.join(STORE_DIR, 'claudeclaw.db'));
+
+      const channel = db.prepare('SELECT * FROM youtube_channels LIMIT 1').get() as any;
+
+      const topVideos = db.prepare(`
+        SELECT
+          video_id, title, view_count, like_count, comment_count,
+          published_at,
+          ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0) * 100, 2) AS engagement_rate
+        FROM youtube_videos
+        ORDER BY view_count DESC
+        LIMIT 10
+      `).all() as any[];
+
+      const stats = db.prepare(`
+        SELECT
+          COUNT(*) as total_videos,
+          SUM(view_count) as total_views,
+          SUM(like_count) as total_likes,
+          SUM(comment_count) as total_comments,
+          ROUND(AVG(CAST(like_count AS REAL) / NULLIF(view_count, 0) * 100), 2) as avg_engagement_rate,
+          MAX(view_count) as max_views,
+          MIN(view_count) as min_views
+        FROM youtube_videos
+      `).get() as any;
+
+      const topComments = db.prepare(`
+        SELECT c.author, c.text, c.like_count, v.title as video_title
+        FROM youtube_comments c
+        JOIN youtube_videos v ON c.video_id = v.video_id
+        ORDER BY c.like_count DESC
+        LIMIT 5
+      `).all() as any[];
+
+      const recentVideos = db.prepare(`
+        SELECT title, view_count, published_at
+        FROM youtube_videos
+        ORDER BY published_at DESC
+        LIMIT 5
+      `).all() as any[];
+
+      db.close();
+      return c.json({ channel, topVideos, stats, topComments, recentVideos });
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Failed to load God\'s Eye data' }, 500);
+    }
+  });
+
   // Hive mind feed
   app.get('/api/hive-mind', (c) => {
     const agentId = c.req.query('agent');

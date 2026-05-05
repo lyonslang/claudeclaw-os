@@ -685,6 +685,67 @@ ${WARROOM_ENABLED ? `<div class="card" style="border:1px solid #1e3a5f">
 </div><!-- end RIGHT COLUMN -->
 
 </div><!-- end grid -->
+
+<!-- God's Eye Analytics (full width below grid) -->
+<div id="gods-eye-section" class="mt-5 mb-8" style="display:none">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">God's Eye
+    <span style="font-size:11px;color:#6b7280;font-weight:400;text-transform:none;letter-spacing:0"> — YouTube Intelligence</span>
+    <span class="info-tip"><span class="info-icon">&#8505;</span><span class="info-tooltip">YouTube channel performance data ingested by the God's Eye agent. Ground truth for meta-learning and anti-slop decisions.</span></span>
+  </h2>
+
+  <!-- Channel Overview -->
+  <div id="gods-eye-channel" class="card mb-3" style="display:none">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:16px;font-weight:700;color:#fff" id="ge-channel-title">-</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:2px" id="ge-channel-url">-</div>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#a5b4fc" id="ge-subs">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Subscribers</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#34d399" id="ge-views">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Total Views</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#f59e0b" id="ge-videos">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Videos</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#f87171" id="ge-avg-eng">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Avg Engagement</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Videos + Top Comments side by side on desktop -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    <div class="card">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Top Videos by Views</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #2a2a2a">
+              <th style="text-align:left;padding:5px 6px;color:#555;font-weight:600">Title</th>
+              <th style="text-align:right;padding:5px 6px;color:#555;font-weight:600">Views</th>
+              <th style="text-align:right;padding:5px 6px;color:#555;font-weight:600">Eng%</th>
+            </tr>
+          </thead>
+          <tbody id="ge-top-videos"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Top Comments</div>
+      <div id="ge-top-comments" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
 </div><!-- end outer wrapper -->
 
 <!-- Memory drill-down drawer -->
@@ -1104,6 +1165,64 @@ async function loadTokens() {
   } catch(e) {
     console.error('Token load error', e);
   }
+}
+
+async function loadGodsEye() {
+  try {
+    const data = await api('/api/gods-eye');
+    if (!data || data.error) return;
+
+    document.getElementById('gods-eye-section').style.display = '';
+
+    // Channel card
+    if (data.channel) {
+      const ch = data.channel;
+      document.getElementById('gods-eye-channel').style.display = '';
+      document.getElementById('ge-channel-title').textContent = ch.title || '-';
+      document.getElementById('ge-channel-url').textContent = ch.custom_url || ch.channel_id || '';
+      document.getElementById('ge-subs').textContent = (ch.subscriber_count || 0).toLocaleString();
+      document.getElementById('ge-views').textContent = formatViews(ch.view_count || 0);
+      document.getElementById('ge-videos').textContent = (ch.video_count || 0).toLocaleString();
+      document.getElementById('ge-avg-eng').textContent = (data.stats?.avg_engagement_rate || 0).toFixed(2) + '%';
+    }
+
+    // Top videos table
+    const vBody = document.getElementById('ge-top-videos');
+    if (data.topVideos && data.topVideos.length > 0) {
+      vBody.innerHTML = data.topVideos.map((v, i) => {
+        const engColor = v.engagement_rate > 3 ? '#34d399' : v.engagement_rate > 1 ? '#f59e0b' : '#6b7280';
+        return '<tr style="border-bottom:1px solid #1e1e1e">'
+          + '<td style="padding:5px 6px;color:#d4d4d8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(v.title) + '">'
+          + '<span style="color:#4b5563;margin-right:5px">' + (i + 1) + '.</span>' + escapeHtml(v.title.substring(0, 38)) + (v.title.length > 38 ? '…' : '') + '</td>'
+          + '<td style="text-align:right;padding:5px 6px;color:#a5b4fc;white-space:nowrap">' + formatViews(v.view_count) + '</td>'
+          + '<td style="text-align:right;padding:5px 6px;color:' + engColor + ';white-space:nowrap">' + (v.engagement_rate || 0).toFixed(2) + '%</td>'
+          + '</tr>';
+      }).join('');
+    }
+
+    // Top comments
+    const cContainer = document.getElementById('ge-top-comments');
+    if (data.topComments && data.topComments.length > 0) {
+      cContainer.innerHTML = data.topComments.map(c =>
+        '<div style="background:#111;border:1px solid #222;border-radius:8px;padding:8px 10px">'
+        + '<div style="font-size:10px;color:#6b7280;margin-bottom:4px">'
+        + '<strong style="color:#a5b4fc">' + escapeHtml(c.author) + '</strong>'
+        + ' &middot; ' + (c.like_count || 0) + ' likes'
+        + ' &middot; <span style="color:#4b5563">' + escapeHtml((c.video_title || '').substring(0, 30)) + '…</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#d4d4d8;line-height:1.5">' + escapeHtml((c.text || '').substring(0, 120)) + (c.text?.length > 120 ? '…' : '') + '</div>'
+        + '</div>'
+      ).join('');
+    }
+  } catch(e) {
+    console.error('Gods Eye load error', e);
+  }
+}
+
+function formatViews(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
 }
 
 async function loadAudit() {
@@ -2594,7 +2713,7 @@ setInterval(loadMissionControl, 15000);
 async function refreshAll() {
   const btn = document.getElementById('refresh-btn').querySelector('svg');
   btn.classList.add('refresh-spin');
-  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadAudit(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
+  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadAudit(), loadGodsEye(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
   btn.classList.remove('refresh-spin');
   document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
 }
