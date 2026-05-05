@@ -1,12 +1,13 @@
 /**
  * anti-slop.ts
- * Hybrid anti-slop: Gemini (40%) + similarity to winners (35%) + niche novelty (25%)
- * Lean, testable, ships fast.
+ * Hybrid anti-slop: Gemini (35%) + similarity to winners (30%) + niche novelty (20%) + playbook alignment (15%)
+ * Playbook alignment is only active when meta-learning has high-confidence techniques (30+ samples).
  */
 
 import Database from 'better-sqlite3';
 import path from 'path';
 import crypto from 'crypto';
+import { getPlaybook, type PlaybookEntry } from './utils/meta-learning.js';
 
 interface SlopCheckResult {
   safeToProduce: boolean;
@@ -14,10 +15,14 @@ interface SlopCheckResult {
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
   reasons: string[];
   geminiFeedback?: string;
+  playbookMissing?: string[];   // high-confidence techniques the concept doesn't use
+  playbookApplying?: string[];  // high-confidence techniques the concept already uses
   breakdown?: {
     geminiScore: number;
     similarityToWinners: number;
     nicheNoveltyScore: number;
+    playbookScore: number;
+    playbookActive: boolean;    // false if insufficient samples yet
   };
 }
 
@@ -147,10 +152,31 @@ export async function checkForSlop(
 
   const reasons: string[] = [];
 
-  // Calculate three scores
+  // Calculate base scores
   const geminiResult = await getGeminiOriginalityScore(niche, title, scriptOrConcept);
   const similarityToWinners = getSimilarityToWinners(niche, title, scriptOrConcept);
   const nicheNovelty = getNicheNoveltyScore(title, niche);
+
+  // Playbook alignment — only active when high-confidence techniques exist (30+ samples)
+  const highConfidenceTechniques = getPlaybook(niche).filter(t => t.confidence_level === 'high');
+  const playbookActive = highConfidenceTechniques.length > 0;
+  const conceptLower = `${title} ${scriptOrConcept}`.toLowerCase();
+
+  const applying: PlaybookEntry[] = [];
+  const missing: PlaybookEntry[] = [];
+
+  if (playbookActive) {
+    for (const t of highConfidenceTechniques) {
+      const matched = conceptLower.includes(t.technique_id.replace(/-/g, ' ')) ||
+                      conceptLower.includes(t.name.toLowerCase());
+      (matched ? applying : missing).push(t);
+    }
+  }
+
+  // Playbook score: full marks if using all high-confidence techniques, degrades per missing one
+  const playbookScore = playbookActive
+    ? Math.max(0, 100 - (missing.length / Math.max(highConfidenceTechniques.length, 1)) * 100)
+    : 100; // neutral when no data yet
 
   // Flag issues
   if (similarityToWinners > 70) {
@@ -159,12 +185,16 @@ export async function checkForSlop(
   if (nicheNovelty < 40) {
     reasons.push(`Hook/format is overdone in ${niche} niche right now`);
   }
+  if (playbookActive && missing.length > 0) {
+    reasons.push(`Missing ${missing.length} proven technique(s): ${missing.map(t => t.name).join(', ')}`);
+  }
 
-  // Weighted score: 40% Gemini + 35% (100 - similarity) + 25% novelty
-  const originalityScore = Math.round(
-    geminiResult.score * 0.4 +
-    (100 - similarityToWinners) * 0.35 +
-    nicheNovelty * 0.25
+  // Weighted score:
+  // With playbook data:    35% Gemini + 30% (100-similarity) + 20% novelty + 15% playbook
+  // Without playbook data: 40% Gemini + 35% (100-similarity) + 25% novelty
+  const originalityScore = Math.round(playbookActive
+    ? geminiResult.score * 0.35 + (100 - similarityToWinners) * 0.30 + nicheNovelty * 0.20 + playbookScore * 0.15
+    : geminiResult.score * 0.40 + (100 - similarityToWinners) * 0.35 + nicheNovelty * 0.25
   );
 
   const riskLevel = originalityScore > 70 ? 'LOW' : originalityScore > 50 ? 'MEDIUM' : 'HIGH';
@@ -195,10 +225,14 @@ export async function checkForSlop(
     riskLevel,
     reasons,
     geminiFeedback: geminiResult.feedback,
+    playbookApplying: applying.map(t => t.name),
+    playbookMissing: missing.map(t => t.name),
     breakdown: {
       geminiScore: geminiResult.score,
       similarityToWinners,
       nicheNoveltyScore: nicheNovelty,
+      playbookScore,
+      playbookActive,
     },
   };
 }
