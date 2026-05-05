@@ -1,0 +1,130 @@
+{
+  "mission_id": "phase_1b_test_001",
+  "script_metadata": {
+    "title": "Why This Mystery Actually Makes Sense",
+    "niche": "mystery_comedy",
+    "channel_id": "mystery_comedy_main",
+    "created_at": "2026-05-05T12:00:00Z",
+    "estimated_runtime_seconds": 135,
+    "target_engagement": "high",
+    "content_category": "mystery_breakdown"
+  },
+  "script_outline": {
+    "hook": {
+      "duration_seconds": 15,
+      "beat_type": "intrigue",
+      "tone": "mysterious",
+      "content": "Most mysteries make zero sense when you really think about it. But this one? This one is actually airtight. And I can prove it in the next two minutes."
+    },
+    "setup": {
+      "duration_seconds": 30,
+      "beat_type": "educational",
+      "tone": "clear_authoritative",
+      "content": "Let's take the locked-room murder from Season 3. Everyone assumes the killer is one of six people. The detective has clues pointing in six different directions. But here's the thing nobody noticed: five of those clues are red herrings. All five were planted to lead you away from the real answer."
+    },
+    "recognition": {
+      "duration_seconds": 20,
+      "beat_type": "shock",
+      "tone": "energetic_revelatory",
+      "content": "And when you see WHO planted those false clues—it's the person you'd never suspect. The least obvious choice. The character everyone trusts. That's when the whole thing clicks."
+    },
+    "analysis": {
+      "duration_seconds": 40,
+      "beat_type": "educational",
+      "tone": "deliberate_pacing",
+      "content": "The writers knew exactly what they were doing. They layered in visual callbacks three episodes earlier. A throw-away line about a keychain. A scar on someone's hand. A habit nobody picked up on. By the time the reveal comes, every single piece was already on the table. You could have solved it yourself if you'd been paying attention."
+    },
+    "payoff": {
+      "duration_seconds": 20,
+      "beat_type": "recognition_relief",
+      "tone": "warm_satisfied",
+      "content": "That's what separates a good mystery from a great one. Not plot twists that feel cheap. But twists that feel inevitable once you look back. If you caught any of those details on first watch, you're legendary. Go rewatch it. You'll see it now."
+    },
+    "outro": {
+      "duration_seconds": 10,
+      "beat_type": "call_to_action",
+      "tone": "conversational_inviting",
+      "content": "Let me know in the comments if you caught the clues. And if you want me to break down more mysteries that actually hold up, subscribe."
+    }
+  },
+  "emotional_beats": [
+    {
+      "timestamp": 0,
+      "beat": "hook_intrigue",
+      "duration": 15,
+      "tone": "mysterious",
+      "prosody_adjustment": {
+        "speed_percent": -10,
+        "pitch_shift": -2,
+        "pause_before_punchline_ms": 200
+      }
+    },
+    {
+      "timestamp": 15,
+      "beat": "setup_educational",
+      "duration": 30,
+      "tone": "clear_authoritative",
+      "prosody_adjustment": {
+        "speed_percent": 0,
+        "pitch_shift": 0,
+        "pause_between_sentences_ms": 100
+      }
+    },
+    {
+      "timestamp": 45,
+      "beat": "recognition_shock",
+      "duration": 20,
+      "tone": "energetic_revelatory",
+      "prosody_adjustment": {
+        "speed_percent": 15,
+        "pitch_shift": 3,
+        "pause_before_revelation_ms": 0
+      }
+    },
+    {
+      "timestamp": 65,
+      "beat": "analysis_educational",
+      "duration": 40,
+      "tone": "deliberate_pacing",
+      "prosody_adjustment": {
+        "speed_percent": -5,
+        "pitch_shift": 0,
+        "pause_between_sentences_ms": 150
+      }
+    },
+    {
+      "timestamp": 105,
+      "beat": "payoff_recognition",
+      "duration": 20,
+      "tone": "warm_satisfied",
+      "prosody_adjustment": {
+        "speed_percent": -5,
+        "pitch_shift": -1,
+        "pause_natural_ms": 100
+      }
+    },
+    {
+      "timestamp": 125,
+      "beat": "outro_cta",
+      "duration": 10,
+      "tone": "conversational_inviting",
+      "prosody_adjustment": {
+        "speed_percent": -5,
+        "pitch_shift": 0,
+        "pause_natural_ms": 100
+      }
+    }
+  ],
+  "cost_estimates": {
+    "god_s_eye_brief_query": 0.50,
+    "anti_slop_check": 0.10,
+    "scriptwriter_cost": 0.75,
+    "total_expected": 1.35
+  },
+  "validation_criteria": {
+    "min_originality_score": 60,
+    "max_slop_risk": "medium",
+    "must_pass_anti_slop": true,
+    "target_escalations": 0
+  }
+}

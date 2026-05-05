@@ -4422,3 +4422,105 @@ export function getGodSEyeCacheStats(): {
     expiredCount: stats.expired_count || 0,
   };
 }
+
+// ── Mission Post-Mortem Logging ───────────────────────────────────────
+
+export function logMissionPostMortem(data: {
+  missionId: string;
+  agentId: string;
+  missionTitle: string;
+  projectId?: string;
+  niche?: string;
+  startedAt: number;
+  completedAt: number;
+  godSEyeCallsTotal: number;
+  godSEyeCallsCached: number;
+  godSEyeCallsApi: number;
+  godSEyeCost: number;
+  antiSlopChecksTotal: number;
+  antiSlopChecksCached: number;
+  antiSlopRejections: number;
+  antiSlopFlags: number;
+  totalCostUsd: number;
+  peakContextTokens: number;
+  averageContextTokens: number;
+  autonomousDecisionsMade: number;
+  escalationsToAva: number;
+  escalationsAccepted: number;
+  escalationsRejected: number;
+  numOutputsProduced: number;
+  outputsApprovedFirstPass: number;
+  outputsRejectedTotal: number;
+  revisionRoundsTotal: number;
+  frictionPoints: any; // JSON array
+  loopDetections: any; // JSON array
+  expectedCost: number;
+  expectedDurationSeconds: number;
+  status: 'completed' | 'failed' | 'incomplete';
+  summary: string;
+}): void {
+  const durationSeconds = data.completedAt - data.startedAt;
+  const costVariancePercent = data.expectedCost > 0
+    ? ((data.totalCostUsd - data.expectedCost) / data.expectedCost) * 100
+    : null;
+  const durationVariancePercent = data.expectedDurationSeconds > 0
+    ? ((durationSeconds - data.expectedDurationSeconds) / data.expectedDurationSeconds) * 100
+    : null;
+  const contextWindowPressurePercent = data.peakContextTokens > 0
+    ? (data.peakContextTokens / 1000000) * 100
+    : null;
+
+  db.prepare(
+    `INSERT INTO mission_post_mortem (
+      mission_id, agent_id, mission_title, project_id, niche,
+      started_at, completed_at, duration_seconds,
+      god_s_eye_calls_total, god_s_eye_calls_cached, god_s_eye_calls_api, god_s_eye_cost,
+      anti_slop_checks_total, anti_slop_checks_cached, anti_slop_rejections, anti_slop_flags,
+      total_cost_usd,
+      peak_context_tokens, average_context_tokens, context_window_pressure_percent,
+      autonomous_decisions_made, escalations_to_ava, escalations_accepted, escalations_rejected,
+      num_outputs_produced, outputs_approved_first_pass, outputs_rejected_total, revision_rounds_total,
+      friction_points, loop_detections,
+      expected_cost, expected_duration_seconds,
+      cost_variance_percent, duration_variance_percent,
+      status, summary
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    data.missionId,
+    data.agentId,
+    data.missionTitle,
+    data.projectId || null,
+    data.niche || null,
+    data.startedAt,
+    data.completedAt,
+    durationSeconds,
+    data.godSEyeCallsTotal,
+    data.godSEyeCallsCached,
+    data.godSEyeCallsApi,
+    data.godSEyeCost,
+    data.antiSlopChecksTotal,
+    data.antiSlopChecksCached,
+    data.antiSlopRejections,
+    data.antiSlopFlags,
+    data.totalCostUsd,
+    data.peakContextTokens,
+    data.averageContextTokens,
+    contextWindowPressurePercent,
+    data.autonomousDecisionsMade,
+    data.escalationsToAva,
+    data.escalationsAccepted,
+    data.escalationsRejected,
+    data.numOutputsProduced,
+    data.outputsApprovedFirstPass,
+    data.outputsRejectedTotal,
+    data.revisionRoundsTotal,
+    typeof data.frictionPoints === 'string' ? data.frictionPoints : JSON.stringify(data.frictionPoints),
+    typeof data.loopDetections === 'string' ? data.loopDetections : JSON.stringify(data.loopDetections),
+    data.expectedCost,
+    data.expectedDurationSeconds,
+    costVariancePercent,
+    durationVariancePercent,
+    data.status,
+    data.summary
+  );
+}

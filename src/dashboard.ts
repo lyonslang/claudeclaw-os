@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server';
 
 import fs from 'fs';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel, CLAUDECLAW_CONFIG } from './config.js';
 import crypto from 'crypto';
 import {
@@ -1865,6 +1866,60 @@ export function buildDashboardApp(botApi?: Api<RawApi>): Hono {
     const costTimeline = getDashboardCostTimeline(chatId, 30);
     const recentUsage = getDashboardRecentTokenUsage(chatId, 20);
     return c.json({ stats, costTimeline, recentUsage });
+  });
+
+  // Revenue analytics (ClaudeClaw)
+  app.get('/api/revenue', (c) => {
+    try {
+      const db = new Database(path.join(STORE_DIR, 'claudeclaw.db'));
+
+      // Project revenue summary
+      const projectRevenue = db.prepare(`
+        SELECT * FROM project_revenue_summary
+      `).all();
+
+      // Script to revenue correlation (last 20)
+      const scriptRevenue = db.prepare(`
+        SELECT
+          m.mission_id,
+          m.project_id,
+          m.niche,
+          m.total_cost_usd,
+          MAX(v.title) as title,
+          MAX(v.view_count) as views,
+          MAX(ya.cpm_usd) as cpm_usd,
+          MAX(ya.revenue_usd) as revenue_usd,
+          ROUND(MAX(ya.revenue_usd) / NULLIF(m.total_cost_usd, 0), 2) as roi
+        FROM mission_post_mortem m
+        LEFT JOIN video_outcomes vo ON m.project_id = vo.project_id AND m.niche = vo.niche
+        LEFT JOIN youtube_videos v ON vo.video_id = v.video_id
+        LEFT JOIN youtube_analytics ya ON v.video_id = ya.video_id
+        GROUP BY m.mission_id
+        ORDER BY m.created_at DESC
+        LIMIT 20
+      `).all();
+
+      // Top videos by revenue
+      const topVideos = db.prepare(`
+        SELECT
+          v.video_id,
+          v.title,
+          v.view_count,
+          ya.cpm_usd,
+          ya.revenue_usd,
+          ya.impressions
+        FROM youtube_videos v
+        JOIN youtube_analytics ya ON v.video_id = ya.video_id
+        WHERE ya.revenue_usd > 0
+        ORDER BY ya.revenue_usd DESC
+        LIMIT 10
+      `).all();
+
+      db.close();
+      return c.json({ projectRevenue, scriptRevenue, topVideos });
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 500);
+    }
   });
 
   // Bot info (name, PID, chatId) — reads dynamically from state

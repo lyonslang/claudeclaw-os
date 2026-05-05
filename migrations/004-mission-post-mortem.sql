@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS mission_post_mortem (
   -- Execution timeline
   started_at INTEGER NOT NULL,
   completed_at INTEGER NOT NULL,
-  duration_seconds INTEGER GENERATED ALWAYS AS (completed_at - started_at) STORED,
+  duration_seconds INTEGER, -- Computed at insert time
 
   -- Resource usage
   god_s_eye_calls_total INTEGER DEFAULT 0,
@@ -51,16 +51,8 @@ CREATE TABLE IF NOT EXISTS mission_post_mortem (
   -- Thresholds (for validation)
   expected_cost REAL, -- Prior estimate
   expected_duration_seconds INTEGER, -- Prior estimate
-  cost_variance_percent REAL GENERATED ALWAYS AS
-    CASE
-      WHEN expected_cost > 0 THEN ROUND(((total_cost_usd - expected_cost) / expected_cost) * 100, 1)
-      ELSE NULL
-    END STORED,
-  duration_variance_percent REAL GENERATED ALWAYS AS
-    CASE
-      WHEN expected_duration_seconds > 0 THEN ROUND(((duration_seconds - expected_duration_seconds) / expected_duration_seconds) * 100, 1)
-      ELSE NULL
-    END STORED,
+  cost_variance_percent REAL, -- Computed at insert time
+  duration_variance_percent REAL, -- Computed at insert time
 
   -- Summary
   status TEXT CHECK(status IN ('completed', 'failed', 'incomplete')),
