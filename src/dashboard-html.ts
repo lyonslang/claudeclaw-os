@@ -157,7 +157,7 @@ const WARROOM_ENABLED = warroomEnabled;
 <!-- Top bar -->
 <div class="flex items-center justify-between mb-1">
   <div class="flex items-center gap-3">
-    <h1 class="text-xl font-bold text-white">ClaudeClaw <span style="font-size:13px;font-weight:400;color:#6b7280">Mission Control</span></h1>
+    <h1 class="text-xl font-bold text-white">Ava <span style="font-size:13px;font-weight:400;color:#6b7280">Orchestrator</span></h1>
     <span id="device-badge" class="device-badge"></span>
   </div>
   <div class="flex items-center gap-3">
@@ -1478,7 +1478,7 @@ refreshMeetSessions();
 setInterval(refreshMeetSessions, 5000);
 
 // ── Agent & Hive Mind ────────────────────────────────────────────────
-const AGENT_COLORS = { main: '#4f46e5', comms: '#0ea5e9', content: '#f59e0b', ops: '#10b981', research: '#8b5cf6' };
+const AGENT_COLORS = { main: '#ec4899', comms: '#0ea5e9', content: '#f59e0b', ops: '#10b981', research: '#8b5cf6' };
 
 async function loadAgents() {
   try {
@@ -1514,11 +1514,16 @@ async function loadAgents() {
       const avatarImg = '<img src="' + avatarUrl + '" alt="" ' +
         'style="width:44px;height:44px;border-radius:50%;object-fit:cover;border:2px solid ' + color + ';flex-shrink:0;background:#0a0a0a" ' +
         'onerror="this.remove()">';
-      return '<div class="card clickable-card" style="min-width:150px;flex:1;max-width:220px;border-left:3px solid ' + color + '" data-agent="' + a.id + '" onclick="toggleAgentDetail(this.dataset.agent)">' +
+      const isMain = a.id === 'main';
+      const cardStyle = isMain ?
+        'min-width:160px;flex:1;max-width:240px;border-left:3px solid ' + color + ';background:linear-gradient(135deg,rgba(236,72,153,0.05) 0%,rgba(236,72,153,0.02) 100%);box-shadow:0 0 20px rgba(236,72,153,0.15)' :
+        'min-width:150px;flex:1;max-width:220px;border-left:3px solid ' + color;
+      const nameStyle = isMain ? 'font-bold text-white text-sm' : 'font-bold text-white text-sm';
+      return '<div class="card clickable-card" style="' + cardStyle + '" data-agent="' + a.id + '" onclick="toggleAgentDetail(this.dataset.agent)">' +
         '<div style="display:flex;gap:10px;align-items:flex-start">' +
           avatarImg +
           '<div style="flex:1;min-width:0">' +
-            '<div class="font-bold text-white text-sm">' + a.name + '</div>' +
+            '<div class="' + nameStyle + '">' + (isMain ? '✦ ' : '') + a.name + '</div>' +
             '<div class="text-xs mt-1">' + dot + ' ' + statusText + '</div>' +
             modelSelect +
             (a.running ? '<div class="text-xs text-gray-400 mt-1">' + a.todayTurns + ' turns</div>' : '') +

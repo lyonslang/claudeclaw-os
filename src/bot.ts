@@ -24,6 +24,10 @@ import {
   SHOW_COST_FOOTER,
   SMART_ROUTING_ENABLED,
   SMART_ROUTING_CHEAP_MODEL,
+  TIER_T1_MODEL,
+  TIER_T2_MODEL,
+  TIER_T3_MODEL,
+  TIER_T4_MODEL,
   EXFILTRATION_GUARD_ENABLED,
   PROTECTED_ENV_VARS,
   DAILY_COST_BUDGET,
@@ -34,7 +38,7 @@ import { clearSession, getRecentConversation, getRecentMemories, getRecentTaskOu
 import { logger } from './logger.js';
 import { downloadMedia, buildPhotoMessage, buildDocumentMessage, buildVideoMessage } from './media.js';
 import { buildMemoryContext, evaluateMemoryRelevance, saveConversationTurn, shouldNudgeMemory, MEMORY_NUDGE_TEXT } from './memory.js';
-import { classifyMessageComplexity } from './message-classifier.js';
+import { classifyMessageComplexity, classifyMessageTier, setTierModels, type TierResult } from './message-classifier.js';
 import { scanForSecrets, redactSecrets } from './exfiltration-guard.js';
 import { trackUsage, getRateStatus } from './rate-tracker.js';
 import { buildCostFooter } from './cost-footer.js';
@@ -510,11 +514,19 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
   parts.push(message);
   const fullMessage = parts.join('\n\n');
 
-  // Smart model routing: use cheap model for simple acknowledgments
+  // Tier-based smart model routing: classify message complexity and route to appropriate model.
+  // T1 (Core) -> Haiku, T2 (Equipped) -> Haiku, T3 (Awakened) -> Sonnet, T4 (Legendary) -> Sonnet/Opus
   const userModel = chatModelOverride.get(chatIdStr) ?? agentDefaultModel;
-  const effectiveModel = (SMART_ROUTING_ENABLED && !userModel && classifyMessageComplexity(message) === 'simple')
-    ? SMART_ROUTING_CHEAP_MODEL
-    : (userModel ?? 'claude-opus-4-6');
+  let effectiveModel: string;
+  let tierResult: TierResult | undefined;
+
+  if (SMART_ROUTING_ENABLED && !userModel) {
+    tierResult = classifyMessageTier(message);
+    effectiveModel = tierResult.model;
+    logger.debug({ tier: tierResult.tier, model: tierResult.model, reason: tierResult.reason }, 'Tier routing');
+  } else {
+    effectiveModel = userModel ?? 'claude-opus-4-6';
+  }
 
   // Start typing immediately, then refresh on interval
   await sendTyping(ctx.api, chatId);
@@ -653,8 +665,9 @@ async function handleMessage(ctx: Context, message: string, forceVoiceReply = fa
     // Extract file markers before any formatting
     const { text: responseText, files: fileMarkers } = extractFileMarkers(rawResponse);
 
-    // Add cost footer
-    const costFooter = buildCostFooter(SHOW_COST_FOOTER, result.usage, effectiveModel);
+    // Add cost footer (include tier label if tier routing was active)
+    const tierLabel = tierResult ? ` [${tierResult.tier}]` : '';
+    const costFooter = buildCostFooter(SHOW_COST_FOOTER, result.usage, effectiveModel + tierLabel);
 
     // Save conversation turn to memory (including full log).
     // Skip logging for synthetic messages like /respin to avoid self-referential growth.
@@ -838,6 +851,14 @@ export function createBot(): Bot {
   if (!token) {
     throw new Error('Bot token is not set. Check .env or agent config.');
   }
+
+  // Initialize tier-based model routing from config
+  setTierModels({
+    T1: TIER_T1_MODEL,
+    T2: TIER_T2_MODEL,
+    T3: TIER_T3_MODEL,
+    T4: TIER_T4_MODEL,
+  });
 
   const bot = new Bot(token);
 

@@ -96,6 +96,7 @@ import { getWarRoomHtml } from './warroom-html.js';
 import { getWarRoomPickerHtml } from './warroom-text-picker-html.js';
 import { getWarRoomTextHtml } from './warroom-text-html.js';
 import { handleTextTurn, cancelMeetingTurns, getRoster, warmupMeeting, isWarmupDone, getActiveTurnIds, waitForMeetingTurnsIdle } from './warroom-text-orchestrator.js';
+import { detectTier, formatTierDetection, getTierRoutingInstructions } from './tier-detector.js';
 import { getChannel, closeChannel, startChannelSweeper } from './warroom-text-events.js';
 import {
   createTextMeeting,
@@ -1557,10 +1558,24 @@ export function buildDashboardApp(botApi?: Api<RawApi>): Hono {
     }
 
     const id = crypto.randomBytes(4).toString('hex');
-    createMissionTask(id, title, prompt, assignedAgent, 'dashboard', priority);
 
+    // Auto-detect tier and routing from prompt
+    const tierDetection = detectTier(prompt);
+    const routingInstructions = getTierRoutingInstructions(tierDetection.tier);
+
+    // Create mission with tier routing metadata
+    createMissionTask(id, title, prompt, assignedAgent, 'dashboard', priority);
     const task = getMissionTask(id);
-    return c.json({ task }, 201);
+
+    // Return with tier detection and routing info
+    return c.json({
+      task,
+      tierRouting: {
+        detected: formatTierDetection(tierDetection),
+        instructions: routingInstructions,
+        message: `Auto-routed to ${tierDetection.model} (${tierDetection.tier}). Estimated cost: ${tierDetection.estimatedCost.toFixed(2)} tokens. Agent can override if task complexity changes.`
+      }
+    }, 201);
   });
 
   app.post('/api/mission/tasks/:id/cancel', (c) => {

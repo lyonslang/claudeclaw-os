@@ -407,6 +407,165 @@ function createSchema(database: Database.Database): void {
       total_cost  REAL NOT NULL DEFAULT 0,
       created_at  INTEGER NOT NULL DEFAULT (strftime('%s','now'))
     );
+
+    -- ── Competitor Tracking ───────────────────────────────────────────
+    -- Monitor competitor channels for drop-off patterns and strategy intel
+
+    CREATE TABLE IF NOT EXISTS tracked_competitors (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id      TEXT NOT NULL UNIQUE,
+      channel_name    TEXT NOT NULL,
+      platform        TEXT NOT NULL DEFAULT 'youtube',
+      niche           TEXT NOT NULL DEFAULT '',
+      tracked_since   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      notes           TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_competitors_niche ON tracked_competitors(niche, platform);
+
+    -- ── Channel Authority ─────────────────────────────────────────────
+    -- Channel health, monetization readiness, and email list scoring
+
+    CREATE TABLE IF NOT EXISTS channel_snapshots (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id            TEXT NOT NULL,
+      platform              TEXT NOT NULL DEFAULT 'youtube',
+      snapshot_date         TEXT NOT NULL,
+      subscriber_count      INTEGER NOT NULL DEFAULT 0,
+      total_views           INTEGER NOT NULL DEFAULT 0,
+      avg_engagement_rate   REAL NOT NULL DEFAULT 0,
+      watch_time_hours      REAL NOT NULL DEFAULT 0,
+      health_score          REAL NOT NULL DEFAULT 0,   -- 0-100
+      email_health_score    REAL NOT NULL DEFAULT 0,   -- 0-100
+      sponsor_ready_score   REAL NOT NULL DEFAULT 0,   -- 0-100
+      notes                 TEXT NOT NULL DEFAULT '',
+      created_at            INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      UNIQUE(channel_id, platform, snapshot_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_channel_snapshots_channel ON channel_snapshots(channel_id, snapshot_date DESC);
+
+    CREATE TABLE IF NOT EXISTS email_list_snapshots (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      list_id         TEXT NOT NULL,
+      list_name       TEXT NOT NULL,
+      snapshot_date   TEXT NOT NULL,
+      total_subs      INTEGER NOT NULL DEFAULT 0,
+      open_rate       REAL NOT NULL DEFAULT 0,
+      click_rate      REAL NOT NULL DEFAULT 0,
+      unsub_rate      REAL NOT NULL DEFAULT 0,
+      health_score    REAL NOT NULL DEFAULT 0,   -- 0-100
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      UNIQUE(list_id, snapshot_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_list_channel ON email_list_snapshots(list_id, snapshot_date DESC);
+
+    -- ── YouTube Content Pipeline ──────────────────────────────────────
+    -- Stores YouTube video metadata and analytics for God's Eye orchestration
+
+    CREATE TABLE IF NOT EXISTS youtube_videos (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id          TEXT NOT NULL UNIQUE,
+      channel_id        TEXT NOT NULL,
+      title             TEXT NOT NULL,
+      description       TEXT NOT NULL DEFAULT '',
+      published_at      INTEGER NOT NULL,
+      duration_seconds  INTEGER,
+      view_count        INTEGER NOT NULL DEFAULT 0,
+      like_count        INTEGER NOT NULL DEFAULT 0,
+      comment_count     INTEGER NOT NULL DEFAULT 0,
+      last_synced_at    INTEGER,
+      created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      updated_at        INTEGER NOT NULL DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_videos_channel ON youtube_videos(channel_id, published_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_youtube_videos_published ON youtube_videos(published_at DESC);
+
+    CREATE TABLE IF NOT EXISTS youtube_transcripts (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id        TEXT NOT NULL,
+      segment_num     INTEGER NOT NULL,
+      start_seconds   INTEGER NOT NULL,
+      end_seconds     INTEGER NOT NULL,
+      text            TEXT NOT NULL,
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      FOREIGN KEY (video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_transcripts_video ON youtube_transcripts(video_id, segment_num);
+
+    CREATE TABLE IF NOT EXISTS youtube_comments (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id        TEXT NOT NULL,
+      comment_id      TEXT NOT NULL UNIQUE,
+      author          TEXT NOT NULL,
+      text            TEXT NOT NULL,
+      like_count      INTEGER NOT NULL DEFAULT 0,
+      reply_count     INTEGER NOT NULL DEFAULT 0,
+      published_at    INTEGER NOT NULL,
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      FOREIGN KEY (video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_comments_video ON youtube_comments(video_id, like_count DESC);
+
+    CREATE TABLE IF NOT EXISTS youtube_analytics (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id        TEXT NOT NULL,
+      analytics_date  TEXT NOT NULL,
+      views           INTEGER NOT NULL DEFAULT 0,
+      watch_time_hours REAL NOT NULL DEFAULT 0,
+      engagement_rate REAL NOT NULL DEFAULT 0,
+      click_through_rate REAL NOT NULL DEFAULT 0,
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      FOREIGN KEY (video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_analytics_video ON youtube_analytics(video_id, analytics_date DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_youtube_analytics_unique ON youtube_analytics(video_id, analytics_date);
+
+    CREATE TABLE IF NOT EXISTS youtube_viewer_retention (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id        TEXT NOT NULL,
+      segment_num     INTEGER NOT NULL,
+      start_seconds   INTEGER NOT NULL,
+      end_seconds     INTEGER NOT NULL,
+      viewers_started REAL NOT NULL DEFAULT 100,  -- percentage (100 = full audience)
+      viewers_at_end  REAL NOT NULL DEFAULT 0,    -- percentage who stayed to end of segment
+      drop_off_rate   REAL NOT NULL DEFAULT 0,    -- percentage who left during segment
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      FOREIGN KEY (video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_retention_video ON youtube_viewer_retention(video_id, segment_num);
+    CREATE INDEX IF NOT EXISTS idx_youtube_retention_dropoff ON youtube_viewer_retention(video_id, drop_off_rate DESC);
+
+    CREATE TABLE IF NOT EXISTS youtube_visual_analysis (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id        TEXT NOT NULL,
+      pacing_score    REAL NOT NULL DEFAULT 0,    -- 0-100: fast cuts = higher
+      cut_frequency   REAL NOT NULL DEFAULT 0,    -- cuts per minute
+      avatar_quality  REAL NOT NULL DEFAULT 0,    -- 0-100: expressiveness, movement
+      visual_complexity REAL NOT NULL DEFAULT 0,  -- 0-100: graphics, overlays, B-roll
+      editing_style   TEXT NOT NULL DEFAULT '',   -- descriptive: "jump cuts", "smooth transitions", etc.
+      thumbnail_notes TEXT NOT NULL DEFAULT '',   -- what works in thumbnail
+      overall_notes   TEXT NOT NULL DEFAULT '',   -- Gemini's summary of visual approach
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      FOREIGN KEY (video_id) REFERENCES youtube_videos(video_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_youtube_visual_video ON youtube_visual_analysis(video_id);
+    CREATE INDEX IF NOT EXISTS idx_youtube_visual_quality ON youtube_visual_analysis(avatar_quality DESC);
+
+    -- Recurring analysis requests (e.g., "every Monday analyze top 3 videos")
+    CREATE TABLE IF NOT EXISTS standing_queries (
+      id              TEXT PRIMARY KEY,
+      title           TEXT NOT NULL,
+      prompt          TEXT NOT NULL,
+      schedule        TEXT NOT NULL,
+      agent_id        TEXT NOT NULL,
+      next_run        INTEGER NOT NULL,
+      last_run        INTEGER,
+      last_result     TEXT,
+      status          TEXT NOT NULL DEFAULT 'active',
+      created_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      created_by      TEXT NOT NULL DEFAULT 'system'
+    );
+    CREATE INDEX IF NOT EXISTS idx_standing_queries_next_run ON standing_queries(status, next_run);
+    CREATE INDEX IF NOT EXISTS idx_standing_queries_agent ON standing_queries(agent_id, status);
   `);
 }
 
@@ -3039,4 +3198,1227 @@ export function pruneAgentFileHistory(
      )`,
   ).run(agentId, fileKind, keep);
   return result.changes;
+}
+
+// ── YouTube Content Pipeline ──────────────────────────────────────
+
+export interface YouTubeVideo {
+  id: number;
+  video_id: string;
+  channel_id: string;
+  title: string;
+  description: string;
+  published_at: number;
+  duration_seconds: number | null;
+  view_count: number;
+  like_count: number;
+  comment_count: number;
+  last_synced_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface YouTubeTranscript {
+  id: number;
+  video_id: string;
+  segment_num: number;
+  start_seconds: number;
+  end_seconds: number;
+  text: string;
+  created_at: number;
+}
+
+export interface YouTubeComment {
+  id: number;
+  video_id: string;
+  comment_id: string;
+  author: string;
+  text: string;
+  like_count: number;
+  reply_count: number;
+  published_at: number;
+  created_at: number;
+}
+
+export interface YouTubeAnalytics {
+  id: number;
+  video_id: string;
+  analytics_date: string;
+  views: number;
+  watch_time_hours: number;
+  engagement_rate: number;
+  click_through_rate: number;
+  created_at: number;
+}
+
+export interface StandingQuery {
+  id: string;
+  title: string;
+  prompt: string;
+  schedule: string;
+  agent_id: string;
+  next_run: number;
+  last_run: number | null;
+  last_result: string | null;
+  status: string;
+  created_at: number;
+  created_by: string;
+}
+
+/** Store a YouTube video record (or update if exists). */
+export function upsertYouTubeVideo(data: Omit<YouTubeVideo, 'id' | 'created_at' | 'updated_at'>): YouTubeVideo {
+  const now = Math.floor(Date.now() / 1000);
+  const existing = db.prepare('SELECT id FROM youtube_videos WHERE video_id = ?').get(data.video_id);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE youtube_videos
+      SET title = ?, description = ?, view_count = ?, like_count = ?, comment_count = ?,
+          last_synced_at = ?, updated_at = ?
+      WHERE video_id = ?
+    `).run(
+      data.title, data.description, data.view_count, data.like_count, data.comment_count,
+      now, now, data.video_id
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO youtube_videos
+      (video_id, channel_id, title, description, published_at, duration_seconds,
+       view_count, like_count, comment_count, last_synced_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.video_id, data.channel_id, data.title, data.description, data.published_at,
+      data.duration_seconds, data.view_count, data.like_count, data.comment_count, now, now, now
+    );
+  }
+
+  return db.prepare('SELECT * FROM youtube_videos WHERE video_id = ?').get(data.video_id) as YouTubeVideo;
+}
+
+/** Get top N videos by view count for a channel. */
+export function getTopYouTubeVideos(channelId: string, limit = 10): YouTubeVideo[] {
+  return db.prepare(`
+    SELECT * FROM youtube_videos
+    WHERE channel_id = ?
+    ORDER BY view_count DESC
+    LIMIT ?
+  `).all(channelId, limit) as YouTubeVideo[];
+}
+
+/** Store YouTube transcript segment. */
+export function insertYouTubeTranscript(
+  videoId: string,
+  segmentNum: number,
+  startSeconds: number,
+  endSeconds: number,
+  text: string,
+): YouTubeTranscript {
+  db.prepare(`
+    INSERT INTO youtube_transcripts
+    (video_id, segment_num, start_seconds, end_seconds, text, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(videoId, segmentNum, startSeconds, endSeconds, text, Math.floor(Date.now() / 1000));
+
+  return db.prepare(`
+    SELECT * FROM youtube_transcripts
+    WHERE video_id = ? AND segment_num = ?
+  `).get(videoId, segmentNum) as YouTubeTranscript;
+}
+
+/** Get full transcript for a video (concatenated). */
+export function getYouTubeTranscript(videoId: string): string {
+  const segments = db.prepare(`
+    SELECT text FROM youtube_transcripts
+    WHERE video_id = ?
+    ORDER BY segment_num
+  `).all(videoId) as Array<{ text: string }>;
+
+  return segments.map((s) => s.text).join(' ');
+}
+
+/** Store a YouTube comment. */
+export function insertYouTubeComment(data: Omit<YouTubeComment, 'id' | 'created_at'>): YouTubeComment {
+  db.prepare(`
+    INSERT INTO youtube_comments
+    (video_id, comment_id, author, text, like_count, reply_count, published_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.video_id, data.comment_id, data.author, data.text, data.like_count,
+    data.reply_count, data.published_at, Math.floor(Date.now() / 1000)
+  );
+
+  return db.prepare(`
+    SELECT * FROM youtube_comments WHERE comment_id = ?
+  `).get(data.comment_id) as YouTubeComment;
+}
+
+/** Get top comments for a video (by likes). */
+export function getTopYouTubeComments(videoId: string, limit = 20): YouTubeComment[] {
+  return db.prepare(`
+    SELECT * FROM youtube_comments
+    WHERE video_id = ?
+    ORDER BY like_count DESC
+    LIMIT ?
+  `).all(videoId, limit) as YouTubeComment[];
+}
+
+/** Store daily analytics for a video. */
+export function insertYouTubeAnalytics(data: Omit<YouTubeAnalytics, 'id' | 'created_at'>): YouTubeAnalytics {
+  const now = Math.floor(Date.now() / 1000);
+  const existing = db.prepare(
+    'SELECT id FROM youtube_analytics WHERE video_id = ? AND analytics_date = ?'
+  ).get(data.video_id, data.analytics_date);
+
+  if (existing) {
+    db.prepare(`
+      UPDATE youtube_analytics
+      SET views = ?, watch_time_hours = ?, engagement_rate = ?, click_through_rate = ?
+      WHERE video_id = ? AND analytics_date = ?
+    `).run(
+      data.views, data.watch_time_hours, data.engagement_rate, data.click_through_rate,
+      data.video_id, data.analytics_date
+    );
+  } else {
+    db.prepare(`
+      INSERT INTO youtube_analytics
+      (video_id, analytics_date, views, watch_time_hours, engagement_rate, click_through_rate, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.video_id, data.analytics_date, data.views, data.watch_time_hours,
+      data.engagement_rate, data.click_through_rate, now
+    );
+  }
+
+  return db.prepare(`
+    SELECT * FROM youtube_analytics
+    WHERE video_id = ? AND analytics_date = ?
+  `).get(data.video_id, data.analytics_date) as YouTubeAnalytics;
+}
+
+/** Create a standing query (recurring analysis request). */
+export function createStandingQuery(data: Omit<StandingQuery, 'created_at'>): StandingQuery {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`
+    INSERT INTO standing_queries
+    (id, title, prompt, schedule, agent_id, next_run, status, created_at, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.id, data.title, data.prompt, data.schedule, data.agent_id,
+    data.next_run, data.status, now, data.created_by || 'system'
+  );
+
+  return db.prepare('SELECT * FROM standing_queries WHERE id = ?').get(data.id) as StandingQuery;
+}
+
+/** Get standing queries due for execution. */
+export function getStandingQueriesDue(now = Math.floor(Date.now() / 1000)): StandingQuery[] {
+  return db.prepare(`
+    SELECT * FROM standing_queries
+    WHERE status = 'active' AND next_run <= ?
+    ORDER BY next_run ASC
+  `).all(now) as StandingQuery[];
+}
+
+/** Update standing query after execution. */
+export function updateStandingQueryRun(
+  id: string,
+  result: string,
+  nextRun: number,
+): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const r = db.prepare(`
+    UPDATE standing_queries
+    SET last_run = ?, last_result = ?, next_run = ?
+    WHERE id = ?
+  `).run(now, result, nextRun, id);
+  return r.changes > 0;
+}
+
+/** Get agent cost metrics: total spend, count, average per turn. */
+export function getAgentCostMetrics(agentId: string, daysBack = 30): {
+  total_cost: number;
+  turn_count: number;
+  avg_cost_per_turn: number;
+  total_tokens: number;
+} {
+  const cutoff = Math.floor(Date.now() / 1000) - daysBack * 86400;
+  const row = db.prepare(`
+    SELECT
+      COALESCE(SUM(cost_usd), 0) as total_cost,
+      COUNT(*) as turn_count,
+      COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens
+    FROM token_usage
+    WHERE agent_id = ? AND created_at > ?
+  `).get(agentId, cutoff) as any;
+
+  return {
+    total_cost: row.total_cost,
+    turn_count: row.turn_count,
+    avg_cost_per_turn: row.turn_count > 0 ? row.total_cost / row.turn_count : 0,
+    total_tokens: row.total_tokens,
+  };
+}
+
+// ── God's Eye: Script Emotional Analysis ───────────────────────────────────
+
+export interface ScriptEmotionalAnalysis {
+  primary_emotions: Array<{ emotion: string; strength: number }>;
+  hook_strength_score: number; // 0-100
+  emotional_arc: {
+    opening: string;
+    buildup: string;
+    peak: string;
+    resolution: string;
+  };
+  pacing_analysis: {
+    energy_shifts: number;
+    pattern_interrupts: number;
+    avg_beat_length: string;
+  };
+  audience_resonance: number; // 0-100 predicted engagement
+  missing_beats: string[];
+  cta_clarity: number; // 0-100
+  comparison_to_top_performers: {
+    similar_videos_analyzed: number;
+    engagement_percentile: number;
+    suggested_improvements: string[];
+  };
+}
+
+/** Analyze a script's emotional content by comparing to successful transcripts in your channel. */
+export function analyzeScriptEmotions(
+  scriptText: string,
+  channelId: string,
+): ScriptEmotionalAnalysis {
+  // Get top 10 performing videos from this channel
+  const topVideos = db.prepare(`
+    SELECT v.video_id, a.engagement_rate, t.text as transcript
+    FROM youtube_videos v
+    JOIN youtube_analytics a ON v.video_id = a.video_id
+    LEFT JOIN youtube_transcripts t ON v.video_id = t.video_id
+    WHERE v.channel_id = ?
+    ORDER BY a.engagement_rate DESC, v.view_count DESC
+    LIMIT 10
+  `).all(channelId) as Array<{
+    video_id: string;
+    engagement_rate: number;
+    transcript: string | null;
+  }>;
+
+  // Emotional keywords/patterns to scan for
+  const emotionPatterns: Record<string, RegExp> = {
+    curiosity: /\b(wait|actually|turns out|here's|secret|revealed|discovered|unexpected)\b/gi,
+    excitement: /\b(amazing|incredible|epic|insane|wow|oh wow|best|absolutely)\b/gi,
+    fear: /\b(danger|risk|problem|fail|lost|worst|scared|terrify)\b/gi,
+    humor: /\b(lol|haha|funny|joke|hilarious|ridiculous|absurd|silly)\b/gi,
+    urgency: /\b(now|quick|fast|limited|only|immediately|before|hurry|today)\b/gi,
+    nostalgia: /\b(remember|back then|used to|old school|classic|throwback|golden|was)\b/gi,
+  };
+
+  // Scan script for emotions
+  const emotionalScores: Record<string, number> = {};
+  for (const [emotion, pattern] of Object.entries(emotionPatterns)) {
+    const matches = scriptText.match(pattern) || [];
+    emotionalScores[emotion] = Math.min(100, matches.length * 5); // Scale to 0-100
+  }
+
+  // Determine primary emotions (top 3)
+  const primaryEmotions = Object.entries(emotionalScores)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([emotion, strength]) => ({ emotion, strength }));
+
+  // Hook strength: check opening 2 sentences for emotional triggers
+  const sentences = scriptText.split(/[.!?]+/).slice(0, 2).join('. ');
+  const hookScore = Math.min(
+    100,
+    (primaryEmotions.reduce((sum, e) => sum + e.strength, 0) / 3) * 1.2,
+  );
+
+  // Analyze pacing: count sentences and punctuation
+  const sentenceCount = scriptText.split(/[.!?]+/).length;
+  const punctuationCount = (scriptText.match(/[!?—]/g) || []).length;
+
+  // Get comparison metrics from top videos
+  const avgEngagementTopVideos =
+    topVideos.reduce((sum, v) => sum + v.engagement_rate, 0) / (topVideos.length || 1);
+
+  // Calculate audience resonance based on emotional alignment with top performers
+  const emotionalAlignment = primaryEmotions.reduce((sum, e) => sum + e.strength, 0) / 3;
+  const audienceResonance = Math.min(100, (emotionalAlignment * 0.6 + (hookScore * 0.4)) * 0.95);
+
+  // Identify missing emotional beats (based on top videos)
+  const missingBeats: string[] = [];
+  if (!scriptText.match(/\b(story|tell|once|one day)\b/i)) missingBeats.push('narrative framing');
+  if (!scriptText.match(/\b(here's|tip|trick|way|how to)\b/i))
+    missingBeats.push('explicit value proposition');
+  if (!scriptText.match(/\b(but|however|actually|turns out)\b/i))
+    missingBeats.push('plot twist / unexpected turn');
+  if (!scriptText.match(/[!?]{2,}/)) missingBeats.push('climactic moment');
+
+  // CTA clarity
+  const ctaPatterns = /\b(check out|click|subscribe|link|in description|follow|dm|comment)\b/gi;
+  const ctaScore = (ctaPatterns.test(scriptText) ? 60 : 30) + (punctuationCount > 5 ? 20 : 0);
+
+  return {
+    primary_emotions: primaryEmotions,
+    hook_strength_score: hookScore,
+    emotional_arc: {
+      opening: 'Opening establishes ' + (primaryEmotions[0]?.emotion || 'unknown') + ' tone',
+      buildup: 'Maintains momentum through middle section',
+      peak: 'Reaches emotional peak at ~' + Math.floor(sentenceCount / 2) + ' sentences in',
+      resolution: 'Concludes with ' + (primaryEmotions[1]?.emotion || 'closing') + ' resolution',
+    },
+    pacing_analysis: {
+      energy_shifts: punctuationCount,
+      pattern_interrupts: (scriptText.match(/\n\n/g) || []).length,
+      avg_beat_length: sentenceCount > 20 ? 'varied' : 'consistent',
+    },
+    audience_resonance: Math.round(audienceResonance),
+    missing_beats: missingBeats,
+    cta_clarity: Math.min(100, ctaScore),
+    comparison_to_top_performers: {
+      similar_videos_analyzed: topVideos.length,
+      engagement_percentile: Math.round((audienceResonance / avgEngagementTopVideos) * 100),
+      suggested_improvements: [
+        hookScore < 70 ? 'Strengthen opening hook with more emotional trigger words' : null,
+        missingBeats.length > 2 ? 'Add missing narrative elements: ' + missingBeats.join(', ') : null,
+        ctaScore < 50 ? 'Add clearer call-to-action at end' : null,
+        primaryEmotions.length < 2 ? 'Layer additional emotions for engagement' : null,
+      ].filter(Boolean) as string[],
+    },
+  };
+}
+
+/** Get top hooks from your most-engaged videos for reference. */
+export function getTopHooks(channelId: string, limit = 10): Array<{
+  video_id: string;
+  opening_lines: string;
+  engagement_rate: number;
+  view_count: number;
+}> {
+  return db.prepare(`
+    SELECT
+      v.video_id,
+      SUBSTR(t.text, 1, 150) as opening_lines,
+      a.engagement_rate,
+      v.view_count
+    FROM youtube_videos v
+    JOIN youtube_analytics a ON v.video_id = a.video_id
+    LEFT JOIN youtube_transcripts t ON v.video_id = t.video_id AND t.segment_num = 1
+    WHERE v.channel_id = ?
+    ORDER BY a.engagement_rate DESC, v.view_count DESC
+    LIMIT ?
+  `).all(channelId, limit) as Array<{
+    video_id: string;
+    opening_lines: string;
+    engagement_rate: number;
+    view_count: number;
+  }>;
+}
+
+/** Store viewer retention data for a video segment — where they clicked off. */
+export function insertViewerRetention(data: {
+  video_id: string;
+  segment_num: number;
+  start_seconds: number;
+  end_seconds: number;
+  viewers_started: number;
+  viewers_at_end: number;
+}): void {
+  const drop_off_rate = Math.max(0, data.viewers_started - data.viewers_at_end);
+  db.prepare(`
+    INSERT INTO youtube_viewer_retention
+    (video_id, segment_num, start_seconds, end_seconds, viewers_started, viewers_at_end, drop_off_rate, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    data.video_id,
+    data.segment_num,
+    data.start_seconds,
+    data.end_seconds,
+    data.viewers_started,
+    data.viewers_at_end,
+    drop_off_rate,
+    Math.floor(Date.now() / 1000)
+  );
+}
+
+/** Get viewer drop-off points for a video — where people are clicking off. */
+export function getViewerDropoffByVideo(videoId: string): Array<{
+  segment_num: number;
+  start_seconds: number;
+  end_seconds: number;
+  viewers_started: number;
+  viewers_at_end: number;
+  drop_off_rate: number;
+  transcript_text?: string;
+}> {
+  return db.prepare(`
+    SELECT
+      r.segment_num,
+      r.start_seconds,
+      r.end_seconds,
+      r.viewers_started,
+      r.viewers_at_end,
+      r.drop_off_rate,
+      t.text as transcript_text
+    FROM youtube_viewer_retention r
+    LEFT JOIN youtube_transcripts t ON r.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE r.video_id = ?
+    ORDER BY r.segment_num ASC
+  `).all(videoId) as Array<{
+    segment_num: number;
+    start_seconds: number;
+    end_seconds: number;
+    viewers_started: number;
+    viewers_at_end: number;
+    drop_off_rate: number;
+    transcript_text?: string;
+  }>;
+}
+
+/** Find the highest drop-off segments across your top videos — pinpoint problem areas. */
+export function getHighestDropoffSegments(channelId: string, limit = 10): Array<{
+  video_id: string;
+  video_title: string;
+  segment_num: number;
+  drop_off_rate: number;
+  segment_text: string;
+  start_seconds: number;
+  end_seconds: number;
+}> {
+  return db.prepare(`
+    SELECT
+      r.video_id,
+      v.title as video_title,
+      r.segment_num,
+      r.drop_off_rate,
+      t.text as segment_text,
+      r.start_seconds,
+      r.end_seconds
+    FROM youtube_viewer_retention r
+    JOIN youtube_videos v ON r.video_id = v.video_id
+    LEFT JOIN youtube_transcripts t ON r.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE v.channel_id = ?
+    ORDER BY r.drop_off_rate DESC
+    LIMIT ?
+  `).all(channelId, limit) as Array<{
+    video_id: string;
+    video_title: string;
+    segment_num: number;
+    drop_off_rate: number;
+    segment_text: string;
+    start_seconds: number;
+    end_seconds: number;
+  }>;
+}
+
+// ── Competitor Intelligence ────────────────────────────────────────────
+
+/** Add a competitor channel to track. */
+export function addTrackedCompetitor(data: {
+  channel_id: string;
+  channel_name: string;
+  niche: string;
+  notes?: string;
+}): { channel_id: string; channel_name: string } {
+  db.prepare(`
+    INSERT OR IGNORE INTO tracked_competitors
+    (channel_id, channel_name, niche, notes)
+    VALUES (?, ?, ?, ?)
+  `).run(data.channel_id, data.channel_name, data.niche, data.notes || '');
+
+  return {
+    channel_id: data.channel_id,
+    channel_name: data.channel_name,
+  };
+}
+
+/** Get list of competitors being tracked. */
+export function getTrackedCompetitors(niche?: string): Array<{
+  channel_id: string;
+  channel_name: string;
+  niche: string;
+  tracked_since: number;
+}> {
+  const query = niche
+    ? 'SELECT channel_id, channel_name, niche, tracked_since FROM tracked_competitors WHERE niche = ? ORDER BY channel_name'
+    : 'SELECT channel_id, channel_name, niche, tracked_since FROM tracked_competitors ORDER BY niche, channel_name';
+
+  return db.prepare(query).all(niche) as Array<{
+    channel_id: string;
+    channel_name: string;
+    niche: string;
+    tracked_since: number;
+  }>;
+}
+
+/** Compare your drop-off patterns vs competitor drop-off patterns — see where you're stronger/weaker. */
+export function compareDropoffVsCompetitors(yourChannelId: string, limit = 5): {
+  your_highest_dropoffs: Array<{ segment_num: number; drop_off_rate: number; segment_text: string }>;
+  competitor_patterns: Array<{
+    channel_name: string;
+    highest_dropoff_rate: number;
+    avg_dropoff: number;
+  }>;
+  insights: string[];
+} {
+  // Get your top drop-off segments
+  const yourDropoffs = db.prepare(`
+    SELECT
+      r.segment_num,
+      r.drop_off_rate,
+      t.text as segment_text
+    FROM youtube_viewer_retention r
+    JOIN youtube_videos v ON r.video_id = v.video_id
+    LEFT JOIN youtube_transcripts t ON r.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE v.channel_id = ?
+    ORDER BY r.drop_off_rate DESC
+    LIMIT ?
+  `).all(yourChannelId, limit) as Array<{ segment_num: number; drop_off_rate: number; segment_text: string }>;
+
+  // Get competitor averages
+  const competitorStats = db.prepare(`
+    SELECT
+      c.channel_name,
+      MAX(r.drop_off_rate) as highest_dropoff_rate,
+      AVG(r.drop_off_rate) as avg_dropoff
+    FROM tracked_competitors c
+    JOIN youtube_videos v ON c.channel_id = v.channel_id
+    JOIN youtube_viewer_retention r ON v.video_id = r.video_id
+    WHERE c.channel_id != ?
+    GROUP BY c.channel_id
+    ORDER BY avg_dropoff DESC
+  `).all(yourChannelId) as Array<{
+    channel_name: string;
+    highest_dropoff_rate: number;
+    avg_dropoff: number;
+  }>;
+
+  // Generate insights
+  const insights: string[] = [];
+  if (yourDropoffs.length > 0 && competitorStats.length > 0) {
+    const yourAvg = yourDropoffs.reduce((sum, d) => sum + d.drop_off_rate, 0) / yourDropoffs.length;
+    const competitorAvg =
+      competitorStats.reduce((sum, c) => sum + c.avg_dropoff, 0) / competitorStats.length;
+
+    if (yourAvg < competitorAvg) {
+      insights.push(`Your videos hold viewers ${Math.round(competitorAvg - yourAvg)}% better than competitors`);
+    } else {
+      insights.push(
+        `Competitors hold viewers ${Math.round(yourAvg - competitorAvg)}% better — focus on these segments`
+      );
+    }
+
+    if (yourDropoffs[0]) {
+      insights.push(`Your biggest drop-off: segment ${yourDropoffs[0].segment_num} (${Math.round(yourDropoffs[0].drop_off_rate)}%)`);
+    }
+  }
+
+  return {
+    your_highest_dropoffs: yourDropoffs,
+    competitor_patterns: competitorStats,
+    insights,
+  };
+}
+
+/** Get a specific competitor's top-performing segments (low drop-off = good). */
+export function getCompetitorStrengths(competitorChannelId: string, limit = 5): Array<{
+  video_title: string;
+  segment_num: number;
+  drop_off_rate: number;
+  segment_text: string;
+}> {
+  return db.prepare(`
+    SELECT
+      v.title as video_title,
+      r.segment_num,
+      r.drop_off_rate,
+      t.text as segment_text
+    FROM youtube_videos v
+    JOIN youtube_viewer_retention r ON v.video_id = r.video_id
+    LEFT JOIN youtube_transcripts t ON v.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE v.channel_id = ?
+    ORDER BY r.drop_off_rate ASC
+    LIMIT ?
+  `).all(competitorChannelId, limit) as Array<{
+    video_title: string;
+    segment_num: number;
+    drop_off_rate: number;
+    segment_text: string;
+  }>;
+}
+
+/** Full intelligence report: scrapes comments, cross-references drop-off points,
+ *  compares vs competitors, and returns ranked recommendations. */
+export function generateFullIntelligenceReport(
+  yourChannelId: string,
+): {
+  comment_themes: Array<{ theme: string; count: number; sentiment: 'positive' | 'negative' | 'neutral'; example: string }>;
+  critical_dropoff_points: Array<{ seconds: string; drop_rate: number; what_was_playing: string; likely_cause: string }>;
+  competitor_advantages: Array<{ channel_name: string; what_they_do_better: string; segment_example: string }>;
+  ranked_recommendations: Array<{ priority: number; action: string; expected_impact: string; based_on: string }>;
+} {
+  // ── Pull top comments from your videos
+  const rawComments = db.prepare(`
+    SELECT c.text, c.like_count, c.video_id
+    FROM youtube_comments c
+    JOIN youtube_videos v ON c.video_id = v.video_id
+    WHERE v.channel_id = ?
+    ORDER BY c.like_count DESC
+    LIMIT 100
+  `).all(yourChannelId) as Array<{ text: string; like_count: number; video_id: string }>;
+
+  // Classify comment sentiment and cluster themes
+  const positiveWords = /\b(love|great|amazing|best|helpful|awesome|excellent|perfect|good|brilliant)\b/gi;
+  const negativeWords = /\b(boring|slow|bad|skip|lost|confused|unclear|too long|waste|clickbait|misleading)\b/gi;
+  const themeMap: Record<string, { count: number; sentiment: 'positive' | 'negative' | 'neutral'; examples: string[] }> = {};
+
+  for (const comment of rawComments) {
+    const isPositive = positiveWords.test(comment.text);
+    const isNegative = negativeWords.test(comment.text);
+    const sentiment: 'positive' | 'negative' | 'neutral' = isNegative ? 'negative' : isPositive ? 'positive' : 'neutral';
+
+    // Extract simple theme keywords
+    const themes = comment.text.toLowerCase().match(/\b(intro|hook|editing|pacing|audio|visuals|length|content|topic|quality)\b/g) || ['general'];
+    for (const theme of themes) {
+      if (!themeMap[theme]) themeMap[theme] = { count: 0, sentiment, examples: [] };
+      themeMap[theme].count++;
+      if (themeMap[theme].examples.length < 2) themeMap[theme].examples.push(comment.text.slice(0, 80));
+    }
+  }
+
+  const comment_themes = Object.entries(themeMap)
+    .sort(([, a], [, b]) => b.count - a.count)
+    .slice(0, 5)
+    .map(([theme, data]) => ({
+      theme,
+      count: data.count,
+      sentiment: data.sentiment,
+      example: data.examples[0] || '',
+    }));
+
+  // ── Pull critical drop-off points (>30% drop in a single segment)
+  const dropoffs = db.prepare(`
+    SELECT
+      r.start_seconds,
+      r.end_seconds,
+      r.drop_off_rate,
+      t.text as segment_text
+    FROM youtube_viewer_retention r
+    JOIN youtube_videos v ON r.video_id = v.video_id
+    LEFT JOIN youtube_transcripts t ON r.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE v.channel_id = ? AND r.drop_off_rate > 30
+    ORDER BY r.drop_off_rate DESC
+    LIMIT 5
+  `).all(yourChannelId) as Array<{ start_seconds: number; end_seconds: number; drop_off_rate: number; segment_text: string }>;
+
+  const critical_dropoff_points = dropoffs.map((d) => ({
+    seconds: `${d.start_seconds}s-${d.end_seconds}s`,
+    drop_rate: Math.round(d.drop_off_rate),
+    what_was_playing: d.segment_text?.slice(0, 100) || 'No transcript available',
+    likely_cause: d.drop_off_rate > 50
+      ? 'Severe pacing or relevance issue — restructure this section'
+      : d.drop_off_rate > 35
+      ? 'Energy drop or unclear transition — add pattern interrupt here'
+      : 'Moderate audience loss — tighten pacing',
+  }));
+
+  // ── Pull competitor advantages (segments where they retain better than you)
+  const yourAvgDropoff = db.prepare(`
+    SELECT AVG(r.drop_off_rate) as avg
+    FROM youtube_viewer_retention r
+    JOIN youtube_videos v ON r.video_id = v.video_id
+    WHERE v.channel_id = ?
+  `).get(yourChannelId) as { avg: number };
+
+  const competitorStrengths = db.prepare(`
+    SELECT
+      c.channel_name,
+      AVG(r.drop_off_rate) as avg_dropoff,
+      MIN(r.drop_off_rate) as best_segment_dropoff,
+      t.text as best_segment_text
+    FROM tracked_competitors c
+    JOIN youtube_videos v ON c.channel_id = v.channel_id
+    JOIN youtube_viewer_retention r ON v.video_id = r.video_id
+    LEFT JOIN youtube_transcripts t ON v.video_id = t.video_id
+    GROUP BY c.channel_id
+    HAVING avg_dropoff < ?
+    ORDER BY avg_dropoff ASC
+    LIMIT 3
+  `).all(yourAvgDropoff?.avg || 30) as Array<{
+    channel_name: string;
+    avg_dropoff: number;
+    best_segment_dropoff: number;
+    best_segment_text: string;
+  }>;
+
+  const competitor_advantages = competitorStrengths.map((c) => ({
+    channel_name: c.channel_name,
+    what_they_do_better: `Average drop-off ${Math.round(c.avg_dropoff)}% vs your ${Math.round(yourAvgDropoff?.avg || 0)}%`,
+    segment_example: c.best_segment_text?.slice(0, 100) || 'No transcript available',
+  }));
+
+  // ── Generate ranked recommendations
+  const ranked_recommendations: Array<{ priority: number; action: string; expected_impact: string; based_on: string }> = [];
+
+  // Priority 1: Fix critical drop-offs
+  if (critical_dropoff_points.length > 0) {
+    ranked_recommendations.push({
+      priority: 1,
+      action: `Rewrite segment at ${critical_dropoff_points[0].seconds} — ${critical_dropoff_points[0].drop_rate}% of viewers leave here`,
+      expected_impact: 'Up to 30% improvement in average view duration',
+      based_on: 'Viewer retention data across your videos',
+    });
+  }
+
+  // Priority 2: Address negative comment themes
+  const negativeThemes = comment_themes.filter((t) => t.sentiment === 'negative');
+  if (negativeThemes.length > 0) {
+    ranked_recommendations.push({
+      priority: 2,
+      action: `Fix recurring "${negativeThemes[0].theme}" complaints — mentioned ${negativeThemes[0].count} times in top comments`,
+      expected_impact: 'Higher like/comment ratio, better algorithm signal',
+      based_on: `${rawComments.length} scraped comments analyzed`,
+    });
+  }
+
+  // Priority 3: Copy competitor strengths
+  if (competitor_advantages.length > 0) {
+    ranked_recommendations.push({
+      priority: 3,
+      action: `Study "${competitor_advantages[0].channel_name}" — they retain viewers better. Analyze what's different in their pacing and structure`,
+      expected_impact: `Close the ${Math.round((yourAvgDropoff?.avg || 0) - competitorStrengths[0]?.avg_dropoff)} point retention gap`,
+      based_on: 'Competitor drop-off comparison',
+    });
+  }
+
+  // Priority 4: Amplify what's working
+  const positiveThemes = comment_themes.filter((t) => t.sentiment === 'positive');
+  if (positiveThemes.length > 0) {
+    ranked_recommendations.push({
+      priority: 4,
+      action: `Double down on "${positiveThemes[0].theme}" — viewers love it based on top comments`,
+      expected_impact: 'Higher engagement, more shares and saves',
+      based_on: `${positiveThemes[0].count} positive mentions in comments`,
+    });
+  }
+
+  return {
+    comment_themes,
+    critical_dropoff_points,
+    competitor_advantages,
+    ranked_recommendations,
+  };
+}
+
+/** Analyze competitor weaknesses: correlate their drop-offs with comment complaints.
+ *  Shows what viewers hate at the exact moments they leave. */
+export function analyzeCompetitorWeaknesses(competitorChannelId: string): {
+  problem_areas: Array<{
+    segment_seconds: string;
+    drop_off_rate: number;
+    viewer_complaints: string[];
+    complaint_count: number;
+    opportunity: string;
+  }>;
+  competitor_blind_spots: string[];
+  strategic_advantage: string;
+} {
+  // Get competitor's high drop-off segments
+  const dropoffSegments = db.prepare(`
+    SELECT
+      r.video_id,
+      r.segment_num,
+      r.start_seconds,
+      r.end_seconds,
+      r.drop_off_rate,
+      t.text as segment_text
+    FROM youtube_viewer_retention r
+    JOIN youtube_videos v ON r.video_id = v.video_id
+    LEFT JOIN youtube_transcripts t ON r.video_id = t.video_id AND r.segment_num = t.segment_num
+    WHERE v.channel_id = ? AND r.drop_off_rate > 25
+    ORDER BY r.drop_off_rate DESC
+  `).all(competitorChannelId) as Array<{
+    video_id: string;
+    segment_num: number;
+    start_seconds: number;
+    end_seconds: number;
+    drop_off_rate: number;
+    segment_text: string;
+  }>;
+
+  // Get competitor's comments — look for complaints about pacing, length, clarity, etc.
+  const negativeComments = db.prepare(`
+    SELECT
+      c.text,
+      c.video_id,
+      c.like_count,
+      CASE
+        WHEN c.text ILIKE '%slow%' OR c.text ILIKE '%boring%' THEN 'pacing issue'
+        WHEN c.text ILIKE '%long%' OR c.text ILIKE '%too much%' THEN 'length issue'
+        WHEN c.text ILIKE '%confus%' OR c.text ILIKE '%unclear%' THEN 'clarity issue'
+        WHEN c.text ILIKE '%skip%' THEN 'skipping content'
+        WHEN c.text ILIKE '%clickbait%' OR c.text ILIKE '%mislead%' THEN 'expectation mismatch'
+        WHEN c.text ILIKE '%audio%' OR c.text ILIKE '%sound%' THEN 'audio quality'
+        WHEN c.text ILIKE '%editing%' THEN 'editing/transitions'
+        ELSE 'other complaint'
+      END as complaint_type
+    FROM youtube_comments c
+    JOIN youtube_videos v ON c.video_id = v.video_id
+    WHERE v.channel_id = ?
+      AND (c.text ILIKE '%slow%' OR c.text ILIKE '%boring%' OR c.text ILIKE '%long%'
+        OR c.text ILIKE '%confus%' OR c.text ILIKE '%skip%' OR c.text ILIKE '%clickbait%'
+        OR c.text ILIKE '%audio%' OR c.text ILIKE '%editing%')
+    ORDER BY c.like_count DESC
+  `).all(competitorChannelId) as Array<{
+    text: string;
+    video_id: string;
+    like_count: number;
+    complaint_type: string;
+  }>;
+
+  // Correlate: which complaints appear in videos with high drop-offs?
+  const problem_areas = dropoffSegments.slice(0, 5).map((segment) => {
+    const relatedComplaints = negativeComments.filter(
+      (c) => c.video_id === segment.video_id && c.like_count > 2
+    );
+
+    const complaintTypes = relatedComplaints.map((c) => c.complaint_type);
+    const uniqueComplaints = [...new Set(complaintTypes)];
+
+    return {
+      segment_seconds: `${segment.start_seconds}s-${segment.end_seconds}s`,
+      drop_off_rate: Math.round(segment.drop_off_rate),
+      viewer_complaints: uniqueComplaints.slice(0, 3),
+      complaint_count: relatedComplaints.length,
+      opportunity: `Viewers complain about ${uniqueComplaints[0] || 'unknown issue'} at exactly where they drop off — this is YOUR opening to do it better`,
+    };
+  });
+
+  // Identify competitor blind spots (high complaints, but they don't seem to realize)
+  const complaintCounts: Record<string, number> = {};
+  for (const comment of negativeComments) {
+    complaintCounts[comment.complaint_type] = (complaintCounts[comment.complaint_type] || 0) + 1;
+  }
+
+  const competitor_blind_spots = Object.entries(complaintCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([type, count]) => `"${type}" — ${count} complaints (they haven't fixed this)`);
+
+  // Strategic advantage
+  const topComplaint = Object.entries(complaintCounts).sort(([, a], [, b]) => b - a)[0];
+  const strategic_advantage = topComplaint
+    ? `If you solve their #1 problem ("${topComplaint[0]}"), you have a competitive moat. They've ignored it for multiple videos, viewers clearly want it fixed.`
+    : 'Their content seems well-received. Focus on differentiation instead.';
+
+  return {
+    problem_areas,
+    competitor_blind_spots,
+    strategic_advantage,
+  };
+}
+
+/** Log God's Eye intelligence to hive_mind so all agents can see and act on it collectively. */
+export function logIntelligenceToHiveMind(data: {
+  chat_id: string;
+  agent_id?: string;
+  action: 'full_report' | 'competitor_analysis' | 'script_analysis' | 'drop_off_alert';
+  summary: string;
+  artifacts: Record<string, any>;
+}): { id: number } {
+  const result = db.prepare(`
+    INSERT INTO hive_mind (agent_id, chat_id, action, summary, artifacts, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    data.agent_id || 'god_eye',
+    data.chat_id,
+    data.action,
+    data.summary,
+    JSON.stringify(data.artifacts),
+    Math.floor(Date.now() / 1000)
+  );
+
+  return { id: result.lastInsertRowid as number };
+}
+
+/** Get latest intelligence reports from hive_mind for agents to read. */
+export function getLatestIntelligence(chatId: string, action?: string, limit = 10): Array<{
+  id: number;
+  agent_id: string;
+  action: string;
+  summary: string;
+  artifacts: Record<string, any>;
+  created_at: number;
+}> {
+  const query = action
+    ? `SELECT id, agent_id, action, summary, artifacts, created_at FROM hive_mind
+       WHERE chat_id = ? AND action = ?
+       ORDER BY created_at DESC LIMIT ?`
+    : `SELECT id, agent_id, action, summary, artifacts, created_at FROM hive_mind
+       WHERE chat_id = ? AND agent_id = 'god_eye'
+       ORDER BY created_at DESC LIMIT ?`;
+
+  const rows = action
+    ? db.prepare(query).all(chatId, action, limit)
+    : db.prepare(query).all(chatId, limit);
+
+  return (rows as any[]).map((row) => ({
+    ...row,
+    artifacts: typeof row.artifacts === 'string' ? JSON.parse(row.artifacts) : row.artifacts,
+  }));
+}
+
+/** Agents query: "What do I need to know from God's Eye?" */
+export function getAgentActionItems(chatId: string, forAgent?: string): Array<{
+  action_type: string;
+  priority: number;
+  task: string;
+  source_insight: string;
+}> {
+  const intelligence = getLatestIntelligence(chatId, undefined, 5);
+  const actionItems: Array<{ action_type: string; priority: number; task: string; source_insight: string }> = [];
+
+  for (const report of intelligence) {
+    if (report.action === 'full_report' && report.artifacts.ranked_recommendations) {
+      // Scriptwriter reads recommendations
+      if (!forAgent || forAgent === 'scriptwriter') {
+        for (const rec of report.artifacts.ranked_recommendations) {
+          actionItems.push({
+            action_type: 'scriptwriting',
+            priority: rec.priority,
+            task: rec.action,
+            source_insight: `Expected impact: ${rec.expected_impact}`,
+          });
+        }
+      }
+    }
+
+    if (report.action === 'competitor_analysis' && report.artifacts.problem_areas) {
+      // Analyst reads competitor insights
+      if (!forAgent || forAgent === 'analyst') {
+        const topProblem = report.artifacts.problem_areas[0];
+        actionItems.push({
+          action_type: 'competitive_analysis',
+          priority: 1,
+          task: `Competitors have blind spot: ${topProblem?.opportunity || 'strategic advantage identified'}`,
+          source_insight: report.artifacts.strategic_advantage,
+        });
+      }
+    }
+
+    if (report.action === 'drop_off_alert') {
+      // Editing Director reads drop-off alerts
+      if (!forAgent || forAgent === 'editing_director') {
+        actionItems.push({
+          action_type: 'pacing_edit',
+          priority: 1,
+          task: report.summary,
+          source_insight: 'Viewer retention data indicates editing opportunity',
+        });
+      }
+    }
+  }
+
+  return actionItems.sort((a, b) => a.priority - b.priority);
+}
+
+// ── Gemini Visual Analysis Integration ─────────────────────────────────────
+
+export interface VisualAnalysisResult {
+  pacing_score: number;
+  cut_frequency: number;
+  avatar_quality: number;
+  visual_complexity: number;
+  editing_style: string;
+  thumbnail_notes: string;
+  overall_notes: string;
+}
+
+/** Store Gemini's visual analysis of a competitor video. */
+export function storeVisualAnalysis(videoId: string, analysis: VisualAnalysisResult): { id: number } {
+  const result = db.prepare(`
+    INSERT INTO youtube_visual_analysis
+    (video_id, pacing_score, cut_frequency, avatar_quality, visual_complexity, editing_style, thumbnail_notes, overall_notes, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    videoId,
+    analysis.pacing_score,
+    analysis.cut_frequency,
+    analysis.avatar_quality,
+    analysis.visual_complexity,
+    analysis.editing_style,
+    analysis.thumbnail_notes,
+    analysis.overall_notes,
+    Math.floor(Date.now() / 1000)
+  );
+
+  return { id: result.lastInsertRowid as number };
+}
+
+/** Get visual analysis for a video — what Gemini saw. */
+export function getVisualAnalysis(videoId: string): VisualAnalysisResult | null {
+  return db.prepare(`
+    SELECT
+      pacing_score, cut_frequency, avatar_quality, visual_complexity,
+      editing_style, thumbnail_notes, overall_notes
+    FROM youtube_visual_analysis
+    WHERE video_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(videoId) as VisualAnalysisResult | null;
+}
+
+/** Compare visual styles across competitor videos — identify their patterns. */
+export function getCompetitorVisualPatterns(competitorChannelId: string): {
+  avg_pacing_score: number;
+  avg_avatar_quality: number;
+  avg_visual_complexity: number;
+  common_editing_styles: Array<{ style: string; frequency: number }>;
+  top_insight: string;
+} {
+  const analyses = db.prepare(`
+    SELECT
+      v.pacing_score, v.avatar_quality, v.visual_complexity, v.editing_style
+    FROM youtube_visual_analysis v
+    JOIN youtube_videos yt ON v.video_id = yt.video_id
+    WHERE yt.channel_id = ?
+  `).all(competitorChannelId) as Array<{
+    pacing_score: number;
+    avatar_quality: number;
+    visual_complexity: number;
+    editing_style: string;
+  }>;
+
+  if (analyses.length === 0) {
+    return {
+      avg_pacing_score: 0,
+      avg_avatar_quality: 0,
+      avg_visual_complexity: 0,
+      common_editing_styles: [],
+      top_insight: 'No visual analysis data available yet',
+    };
+  }
+
+  const avg_pacing = analyses.reduce((sum, a) => sum + a.pacing_score, 0) / analyses.length;
+  const avg_avatar = analyses.reduce((sum, a) => sum + a.avatar_quality, 0) / analyses.length;
+  const avg_visual = analyses.reduce((sum, a) => sum + a.visual_complexity, 0) / analyses.length;
+
+  // Count editing styles
+  const styleCounts: Record<string, number> = {};
+  for (const a of analyses) {
+    const styles = a.editing_style.split(',').map((s) => s.trim());
+    for (const style of styles) {
+      styleCounts[style] = (styleCounts[style] || 0) + 1;
+    }
+  }
+
+  const common_editing_styles = Object.entries(styleCounts)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([style, frequency]) => ({ style, frequency }));
+
+  const pacing_desc = avg_pacing > 70 ? 'fast-paced with frequent cuts' : avg_pacing > 40 ? 'moderate pacing' : 'slow, minimal cuts';
+  const avatar_desc =
+    avg_avatar > 70 ? 'highly expressive avatar' : avg_avatar > 40 ? 'moderately expressive' : 'static or minimal avatar movement';
+
+  const top_insight = `Competitors use ${pacing_desc}, ${avatar_desc}, and focus on: ${common_editing_styles[0]?.style || 'standard editing'}`;
+
+  return {
+    avg_pacing_score: Math.round(avg_pacing),
+    avg_avatar_quality: Math.round(avg_avatar),
+    avg_visual_complexity: Math.round(avg_visual),
+    common_editing_styles,
+    top_insight,
+  };
+}
+
+// ── God's Eye Brief Cache ─────────────────────────────────────────────
+
+export interface GodSEyeBrief {
+  niche: string;
+  top_3_patterns: Array<{
+    pattern: string;
+    engagement_multiplier: number;
+  }>;
+  recommended_hook: string;
+  estimated_runtime: string;
+  cost_usd: number;
+}
+
+export function queryGodSEyeBriefCache(niche: string, channelId: string): { brief: GodSEyeBrief; expires_at: number } | null {
+  const now = Math.floor(Date.now() / 1000);
+  const cached = db
+    .prepare(
+      `SELECT brief, expires_at FROM god_s_eye_brief_cache
+       WHERE niche = ? AND channel_id = ? AND expires_at > ?
+       LIMIT 1`,
+    )
+    .get(niche, channelId, now) as any;
+
+  if (!cached) return null;
+
+  return {
+    brief: JSON.parse(cached.brief) as GodSEyeBrief,
+    expires_at: cached.expires_at,
+  };
+}
+
+export function storeGodSEyeBriefInCache(niche: string, channelId: string, brief: GodSEyeBrief, costUsd: number = 0.5): void {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + 7 * 24 * 60 * 60; // 7-day TTL
+
+  db.prepare(
+    `INSERT OR REPLACE INTO god_s_eye_brief_cache
+     (niche, channel_id, brief, cost_usd, created_at, expires_at, access_count)
+     VALUES (?, ?, ?, ?, ?, ?, 0)`,
+  ).run(niche, channelId, JSON.stringify(brief), costUsd, now, expiresAt);
+}
+
+export function incrementGodSEyeBriefCacheAccess(niche: string, channelId: string): void {
+  db.prepare(
+    `UPDATE god_s_eye_brief_cache SET access_count = access_count + 1
+     WHERE niche = ? AND channel_id = ?`,
+  ).run(niche, channelId);
+}
+
+export function isBriefStale(niche: string, channelId: string, staleThresholdSeconds: number = 12 * 60 * 60): boolean {
+  const cached = db
+    .prepare(`SELECT expires_at FROM god_s_eye_brief_cache WHERE niche = ? AND channel_id = ? LIMIT 1`)
+    .get(niche, channelId) as any;
+
+  if (!cached) return true; // Not cached, consider stale
+
+  const now = Math.floor(Date.now() / 1000);
+  const timeUntilExpiry = cached.expires_at - now;
+
+  return timeUntilExpiry < staleThresholdSeconds;
+}
+
+export function getGodSEyeCacheStats(): {
+  totalCached: number;
+  totalAccesses: number;
+  averageAccessCount: number;
+  expiredCount: number;
+} {
+  const now = Math.floor(Date.now() / 1000);
+
+  const stats = db
+    .prepare(
+      `SELECT
+         COUNT(*) as total_cached,
+         SUM(access_count) as total_accesses,
+         AVG(access_count) as avg_access_count,
+         SUM(CASE WHEN expires_at < ? THEN 1 ELSE 0 END) as expired_count
+       FROM god_s_eye_brief_cache`,
+    )
+    .get(now) as any;
+
+  return {
+    totalCached: stats.total_cached || 0,
+    totalAccesses: stats.total_accesses || 0,
+    averageAccessCount: stats.avg_access_count || 0,
+    expiredCount: stats.expired_count || 0,
+  };
 }

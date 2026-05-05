@@ -27,6 +27,10 @@ const envConfig = readEnvFile([
   'MODEL_FALLBACK_CHAIN',
   'SMART_ROUTING_ENABLED',
   'SMART_ROUTING_CHEAP_MODEL',
+  'TIER_T1_MODEL',
+  'TIER_T2_MODEL',
+  'TIER_T3_MODEL',
+  'TIER_T4_MODEL',
   'SHOW_COST_FOOTER',
   'DAILY_COST_BUDGET',
   'HOURLY_TOKEN_BUDGET',
@@ -210,12 +214,27 @@ export const MODEL_FALLBACK_CHAIN = (
   process.env.MODEL_FALLBACK_CHAIN || envConfig.MODEL_FALLBACK_CHAIN || ''
 ).split(',').map((s) => s.trim()).filter(Boolean);
 
-// Smart model routing: route simple messages to a cheap model.
+// Smart model routing: route messages to the appropriate model based on tier.
 // Defaults to false to preserve existing behavior. Opt in via .env.
+// When enabled, messages are classified T1-T4 and routed accordingly:
+//   T1 (Core)      -> TIER_T1_MODEL (default: haiku) -- acks, casual chat, simple lookups
+//   T2 (Equipped)  -> TIER_T2_MODEL (default: haiku) -- skill triggers, simple questions
+//   T3 (Awakened)  -> TIER_T3_MODEL (default: sonnet) -- reasoning, creative, code
+//   T4 (Legendary) -> TIER_T4_MODEL (default: sonnet) -- multi-agent pipelines
 export const SMART_ROUTING_ENABLED =
   (process.env.SMART_ROUTING_ENABLED || envConfig.SMART_ROUTING_ENABLED || 'false').toLowerCase() === 'true';
 export const SMART_ROUTING_CHEAP_MODEL =
   process.env.SMART_ROUTING_CHEAP_MODEL || envConfig.SMART_ROUTING_CHEAP_MODEL || 'claude-haiku-4-5';
+
+// Per-tier model overrides. Defaults match the MANIFEST.md routing table.
+export const TIER_T1_MODEL =
+  process.env.TIER_T1_MODEL || envConfig.TIER_T1_MODEL || 'claude-haiku-4-5';
+export const TIER_T2_MODEL =
+  process.env.TIER_T2_MODEL || envConfig.TIER_T2_MODEL || 'claude-haiku-4-5';
+export const TIER_T3_MODEL =
+  process.env.TIER_T3_MODEL || envConfig.TIER_T3_MODEL || 'claude-sonnet-4-6';
+export const TIER_T4_MODEL =
+  process.env.TIER_T4_MODEL || envConfig.TIER_T4_MODEL || 'claude-sonnet-4-6';
 
 // Cost footer on every response.
 // compact = model only, verbose = model + tokens, cost = model + $, full = everything

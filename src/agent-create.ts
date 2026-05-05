@@ -300,6 +300,14 @@ export async function createAgent(opts: CreateAgentOpts): Promise<CreateAgentRes
     description,
     telegram_bot_token_env: envKey,
     model: model || 'claude-sonnet-4-6',
+    // Agent capability declaration for orchestration routing
+    capabilities: {
+      skills: [], // e.g. ['oracle', 'loresmith'] - what this agent can do
+      tier_models: ['T1', 'T2'], // which tier models this agent can handle
+      specialty: '', // e.g. 'scriptwriting', 'data-analysis' - primary expertise
+      cost_per_1k: 0.015, // approximate token cost
+      avg_latency_ms: 2000, // approximate response time for load balancing
+    },
   };
   fs.writeFileSync(
     path.join(agentDir, 'agent.yaml'),
