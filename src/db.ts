@@ -1225,23 +1225,44 @@ export function batchUpdateMemoryRelevance(
 }
 
 /**
- * Importance-weighted decay. High-importance memories decay slower.
- * Pinned memories are exempt from decay entirely.
- * - pinned:             no decay (permanent)
- * - importance >= 0.8:  1% per day (retains ~460 days)
- * - importance >= 0.5:  2% per day (retains ~230 days)
- * - importance < 0.5:   5% per day (retains ~90 days)
+ * Bayesian-informed memory decay.
+ *
+ * Replaces the old fixed-tier system with a formula that factors in access recency.
+ * Memories that are actively accessed decay much slower than untouched ones,
+ * regardless of their initial importance score.
+ *
+ * Decay multiplier per day:
+ * - Pinned: no decay (permanent)
+ * - Recently accessed (last 7 days): 0.995 (very slow — actively useful)
+ * - importance >= 0.8 AND accessed within 30 days: 0.993
+ * - importance >= 0.8: 0.99 (1% per day, ~460 days)
+ * - importance >= 0.5 AND accessed within 30 days: 0.985
+ * - importance >= 0.5: 0.98 (2% per day, ~230 days)
+ * - accessed within 30 days: 0.97 (access keeps it alive longer)
+ * - default: 0.95 (5% per day, ~90 days)
+ *
+ * The key insight: a low-importance memory that keeps getting accessed
+ * should decay slower than a high-importance memory that was never useful.
  */
 export function decayMemories(): void {
-  const oneDayAgo = Math.floor(Date.now() / 1000) - 86400;
+  const now = Math.floor(Date.now() / 1000);
+  const oneDayAgo = now - 86400;
+  const sevenDaysAgo = now - 7 * 86400;
+  const thirtyDaysAgo = now - 30 * 86400;
+
   db.prepare(`
     UPDATE memories SET salience = salience * CASE
+      WHEN accessed_at > ? THEN 0.995
+      WHEN importance >= 0.8 AND accessed_at > ? THEN 0.993
       WHEN importance >= 0.8 THEN 0.99
+      WHEN importance >= 0.5 AND accessed_at > ? THEN 0.985
       WHEN importance >= 0.5 THEN 0.98
+      WHEN accessed_at > ? THEN 0.97
       ELSE 0.95
     END
     WHERE created_at < ? AND pinned = 0
-  `).run(oneDayAgo);
+  `).run(sevenDaysAgo, thirtyDaysAgo, thirtyDaysAgo, thirtyDaysAgo, oneDayAgo);
+
   // Clear superseded_by references pointing to memories we're about to delete,
   // otherwise the FOREIGN KEY constraint on superseded_by -> memories(id) fails.
   db.prepare(`

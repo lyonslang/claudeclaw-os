@@ -23,6 +23,7 @@ import { generateContent, parseJsonResponse } from './gemini.js';
 import { logger } from './logger.js';
 import { ingestConversationTurn } from './memory-ingest.js';
 import { buildObsidianContext } from './obsidian.js';
+import { scoreMemories } from './utils/memory-bayesian.js';
 
 /**
  * Build a structured memory context string to prepend to the user's message.
@@ -90,24 +91,36 @@ export async function buildMemoryContext(
   // NOTE: We do NOT touch memories here. The feedback loop (evaluateMemoryRelevance)
   // is the only thing that should boost salience/accessed_at. Touching at retrieval
   // creates a positive feedback loop where noise stays fresh forever.
-  const searched = searchMemories(chatId, userMessage, 5, queryEmbedding, strictAgentId);
-  for (const mem of searched) {
-    seen.add(mem.id);
-    summaryMap.set(mem.id, mem.summary);
-    const topics = safeParse(mem.topics);
-    const topicStr = topics.length > 0 ? ` (${topics.join(', ')})` : '';
-    memLines.push(`- [${mem.importance.toFixed(1)}] ${mem.summary}${topicStr}`);
+  const searched = searchMemories(chatId, userMessage, 8, queryEmbedding, strictAgentId);
+
+  // Layer 2: recent high-importance memories
+  const recent = getRecentHighImportanceMemories(chatId, 5, strictAgentId);
+
+  // Merge and deduplicate both layers, then re-rank by Bayesian confidence
+  const allCandidates = [...searched];
+  for (const mem of recent) {
+    if (!allCandidates.some(m => m.id === mem.id)) {
+      allCandidates.push(mem);
+    }
   }
 
-  // Layer 2: recent high-importance memories (deduplicated)
-  const recent = getRecentHighImportanceMemories(chatId, 5, strictAgentId);
-  for (const mem of recent) {
-    if (seen.has(mem.id)) continue;
+  // Compute Bayesian scores and re-rank
+  const bayesianScores = scoreMemories(allCandidates);
+  const ranked = allCandidates
+    .map(mem => ({
+      mem,
+      bayesian: bayesianScores.get(mem.id),
+    }))
+    .sort((a, b) => (b.bayesian?.retrievalBoost ?? 0) - (a.bayesian?.retrievalBoost ?? 0))
+    .slice(0, 10); // cap at 10 after re-ranking
+
+  for (const { mem, bayesian } of ranked) {
     seen.add(mem.id);
     summaryMap.set(mem.id, mem.summary);
     const topics = safeParse(mem.topics);
     const topicStr = topics.length > 0 ? ` (${topics.join(', ')})` : '';
-    memLines.push(`- [${mem.importance.toFixed(1)}] ${mem.summary}${topicStr}`);
+    const tierTag = bayesian?.tier ? ` [${bayesian.tier}]` : '';
+    memLines.push(`- [${mem.importance.toFixed(1)}]${tierTag} ${mem.summary}${topicStr}`);
   }
 
   // Layer 3: consolidation insights (semantic search with LIKE fallback)
