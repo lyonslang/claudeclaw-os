@@ -7,6 +7,7 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'TELEGRAM_BOT_TOKEN',
   'ALLOWED_CHAT_ID',
+  'ALLOWED_GROUP_CHAT_IDS',
   'GROQ_API_KEY',
   'ELEVENLABS_API_KEY',
   'ELEVENLABS_VOICE_ID',
@@ -41,6 +42,7 @@ const envConfig = readEnvFile([
   'WARROOM_ENABLED',
   'WARROOM_PORT',
   'STREAM_STRATEGY',
+  'YOUTUBE_API_KEY',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -87,6 +89,14 @@ export const TELEGRAM_BOT_TOKEN =
 // Only respond to this Telegram chat ID. Set this after getting your ID via /chatid.
 export const ALLOWED_CHAT_ID =
   process.env.ALLOWED_CHAT_ID || envConfig.ALLOWED_CHAT_ID || '';
+
+// Comma-separated list of group chat IDs to allow. e.g. -5293158904,-1234567890
+export const ALLOWED_GROUP_CHAT_IDS: Set<string> = new Set(
+  (process.env.ALLOWED_GROUP_CHAT_IDS || envConfig.ALLOWED_GROUP_CHAT_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
 
 export const WHATSAPP_ENABLED =
   (process.env.WHATSAPP_ENABLED || envConfig.WHATSAPP_ENABLED || '').toLowerCase() === 'true';
@@ -180,6 +190,10 @@ export const DB_ENCRYPTION_KEY =
 // Google API key for Gemini (memory extraction + consolidation)
 export const GOOGLE_API_KEY =
   process.env.GOOGLE_API_KEY || envConfig.GOOGLE_API_KEY || '';
+
+// YouTube Data API v3 key for God's Eye channel analysis
+export const YOUTUBE_API_KEY =
+  process.env.YOUTUBE_API_KEY || envConfig.YOUTUBE_API_KEY || '';
 
 // Streaming strategy for progressive Telegram updates.
 // 'global-throttle' (default): edits a placeholder message with streamed text,

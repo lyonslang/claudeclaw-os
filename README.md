@@ -67,6 +67,101 @@ These are powerful but require extra API keys or services. Each one has its own 
 | **Standup roster picker** | none extra | Drag-reorder, toggle, cap, and rotate `/standup` speakers from the dashboard |
 | **Live Meetings (Daily.co)** | `DAILY_API_KEY` | Send an agent into a Daily.co video room with a Pika avatar that speaks in real time |
 | **WhatsApp bridge** | Puppeteer + QR scan | Highly experimental. Read/send WhatsApp from Telegram |
+| **God's Eye Pipeline** | `YOUTUBE_API_KEY` | Analyze any YouTube channel, generate scripts with Bayesian confidence scores, pre-production scoring |
+
+---
+
+## God's Eye Content Pipeline
+
+The God's Eye pipeline lets you point at any YouTube channel and get a full analysis with Bayesian confidence scores, then generate production-ready scripts or score video concepts before you produce them.
+
+**What you need:** `YOUTUBE_API_KEY` in your `.env`. Get one free at [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) (enable YouTube Data API v3).
+
+### Pipeline CLI
+
+Run from the project root:
+
+```bash
+# Analyze any channel — fetch videos, detect patterns, score confidence
+npx tsx scripts/pipeline-cli.ts analyze @MrBeast --niche entertainment
+
+# Analyze + generate a script in one shot
+npx tsx scripts/pipeline-cli.ts script @SomeCreator --niche comedy --mechanism NARRATIVE_VOID
+
+# Score a video concept against a channel's patterns (no script generation)
+npx tsx scripts/pipeline-cli.ts score @SomeCreator --title "Why Everyone Is Wrong About This?" --niche comedy
+
+# JSON output for programmatic use
+npx tsx scripts/pipeline-cli.ts analyze @Channel --niche general --json
+
+# Force re-fetch even if data is cached
+npx tsx scripts/pipeline-cli.ts analyze @Channel --niche comedy --force
+```
+
+**Channel input:** Accepts `@handle`, full YouTube URL (`youtube.com/@handle`, `youtube.com/channel/UCxxx`), or raw channel ID (`UCxxxxx`).
+
+### What the pipeline does
+
+1. **Ingest** — Fetches channel metadata + up to 50 videos from the YouTube Data API v3. Persists to local SQLite. Skips re-fetch if data is < 7 days old.
+2. **God's Eye Analysis** — Runs Bayesian pattern detection (Beta distribution + recency decay + differential impact), data-driven emotional arc analysis, and competitor gap detection. All confidence scores are computed, not hardcoded.
+3. **Script Generation** (optional) — Feeds the brief into the Scriptwriter with Bayesian-weighted pivot angle selection (CONTRARIAN / MICRO_FACT / SYSTEMIC). Runs novelty, anti-slop, AHA moment, and sensory quality gates.
+4. **Pre-Production Score** — Checks a proposed title/hook/format against the channel's top patterns. Returns 0-100 score with breakdown of matched patterns, missing patterns, and emotional arc alignment.
+
+### Pre-production scoring
+
+Test multiple concepts quickly without generating full scripts:
+
+```bash
+# Score a concept against a channel
+npx tsx scripts/pipeline-cli.ts score @Channel --title "Star GOES OFF on Network..." --hook "You won't believe what happened" --niche comedy
+```
+
+Output:
+```
+PRE-PRODUCTION SCORE: "Star GOES OFF on Network..."
+Score: 73/100 (confidence-weighted: 68/100)
+Arc alignment: outrage (confrontation)
+Matches 2/4 patterns. Strongest: Controversy framing. Missing: Ellipsis titles (72%).
+```
+
+### Programmatic usage
+
+From TypeScript/JavaScript code:
+
+```typescript
+import { analyzeChannel, analyzeAndScript, scoreConceptForChannel } from './src/pipeline.js';
+
+// Analyze any channel
+const result = await analyzeChannel('@MrBeast', 'entertainment');
+console.log(result.brief.top_patterns);    // Bayesian-scored patterns
+console.log(result.brief.competitor_gaps); // Data-derived gaps
+console.log(result.human_summary);         // One-paragraph summary
+
+// Full pipeline: analyze → script → score
+const full = await analyzeAndScript('@SomeCreator', 'comedy', 'NARRATIVE_VOID');
+console.log(full.pre_production_score.score); // 0-100
+console.log(full.script.ready_for_production); // boolean
+
+// Score a concept without generating a script
+const { score } = await scoreConceptForChannel('@Channel', {
+  title: 'Why Did This Go Viral?',
+  hook: 'Nobody is talking about this',
+  format: 'long-form',
+}, 'entertainment');
+console.log(score.summary); // "Matches 3/5 patterns (82/100)..."
+```
+
+### Key modules
+
+| Module | Purpose |
+|--------|---------|
+| `src/youtube-ingest.ts` | YouTube Data API v3 fetcher + DB persistence, channel ID resolution, staleness checks |
+| `src/pipeline.ts` | Orchestrator connecting ingest → God's Eye → Scriptwriter → pre-production score |
+| `src/gods-eye-brief.ts` | Bayesian pattern detection, data-driven emotional arc, competitor gap analysis, pre-production scoring |
+| `src/utils/bayesian-confidence.ts` | Beta distribution confidence with credible intervals, recency decay, niche-aware priors |
+| `src/scriptwriter.ts` | Sonnet-powered script generation with Bayesian pivot governor and quality gates |
+| `src/bayesian-pivot-governor.ts` | Laplace-smoothed explore/exploit across pivot angles (CONTRARIAN, MICRO_FACT, SYSTEMIC) |
+| `scripts/pipeline-cli.ts` | CLI entry point for analyze, script, and score commands |
 
 ---
 
@@ -1734,7 +1829,12 @@ claudeclaw/
 │   ├── config.ts            Reads .env safely (never pollutes process.env)
 │   ├── env.ts               Low-level .env file parser
 │   ├── obsidian.ts          Obsidian vault context injection (per agent)
-│   └── logger.ts            Structured logging via pino
+│   ├── logger.ts            Structured logging via pino
+│   ├── youtube-ingest.ts    YouTube API fetcher + DB persistence (God's Eye pipeline)
+│   ├── pipeline.ts          Content pipeline orchestrator (analyze → script → score)
+│   ├── gods-eye-brief.ts    God's Eye brief engine (Bayesian patterns, emotional arc, gaps)
+│   ├── scriptwriter.ts      Sonnet-powered script generation with quality gates
+│   └── bayesian-pivot-governor.ts  Explore/exploit pivot angle selection
 │
 │  ← Skills (copy to ~/.claude/skills/ to activate)
 ├── skills/

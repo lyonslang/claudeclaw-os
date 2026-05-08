@@ -239,46 +239,181 @@ function analyzeHook(videos: YouTubeVideo[], niche: string): HookAnalysis {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Emotional Arc Analysis
+// Emotional Arc Analysis — data-driven
 // ────────────────────────────────────────────────────────────────
 
-function analyzeEmotionalArc(videos: YouTubeVideo[]): EmotionalArc {
-  const topVideo = videos[0];
+/**
+ * Title sentiment patterns used to cluster videos into emotional categories.
+ * Each pattern has a set of keyword/regex tests and maps to an emotion + technique.
+ */
+const SENTIMENT_PATTERNS: Array<{
+  name: string;
+  emotion: string;
+  technique: string;
+  test: (title: string) => boolean;
+}> = [
+  {
+    name: 'curiosity',
+    emotion: 'curiosity',
+    technique: 'mystery',
+    test: (t) => t.includes('?') || /\bwhy\b/i.test(t) || /\bhow\b/i.test(t) || t.includes('secret'),
+  },
+  {
+    name: 'controversy',
+    emotion: 'outrage',
+    technique: 'confrontation',
+    test: (t) => /GOES OFF|EXPOSE|CALLS OUT|SPEAKS OUT|RESPONDS|BLAST/i.test(t),
+  },
+  {
+    name: 'reveal',
+    emotion: 'surprise',
+    technique: 'revelation',
+    test: (t) => /the truth|real reason|actually|here'?s what|finally/i.test(t),
+  },
+  {
+    name: 'personal',
+    emotion: 'empathy',
+    technique: 'vulnerability',
+    test: (t) => /\bI\b|\bmy\b|\bme\b/i.test(t) || /opens up|confess|admit/i.test(t),
+  },
+  {
+    name: 'urgency',
+    emotion: 'urgency',
+    technique: 'scarcity',
+    test: (t) => /breaking|just happened|right now|update|\bnew\b/i.test(t),
+  },
+  {
+    name: 'nostalgia',
+    emotion: 'nostalgia',
+    technique: 'throwback',
+    test: (t) => /remember|back when|classic|\d{4}|used to|before/i.test(t),
+  },
+];
 
-  // Infer emotional beats from engagement and title patterns
-  const title = topVideo?.title || '';
-  const hasQuestion = title.includes('?');
-  const hasReveal = title.includes('Why') || title.includes('What');
+/**
+ * Classify a video's title into its dominant sentiment pattern.
+ * Returns the first matching pattern or 'neutral' if none match.
+ */
+function classifyTitleSentiment(title: string): typeof SENTIMENT_PATTERNS[number] | null {
+  const t = title || '';
+  return SENTIMENT_PATTERNS.find(p => p.test(t)) ?? null;
+}
+
+/**
+ * Data-driven emotional arc analysis.
+ *
+ * Analyzes the FULL video set (not just video[0]):
+ * - Clusters all videos by title sentiment pattern
+ * - Computes effectiveness as (avg engagement of cluster) / (channel avg engagement)
+ * - Selects opening/middle/peak/close from the highest-performing clusters
+ * - Detects missing beats by checking which patterns are absent from top performers
+ */
+function analyzeEmotionalArc(videos: YouTubeVideo[]): EmotionalArc {
+  if (!videos || videos.length === 0) {
+    return fallbackEmotionalArc();
+  }
+
+  const channelAvgEngagement = videos.reduce((sum, v) => sum + v.engagement_rate, 0) / videos.length;
+
+  // Cluster videos by sentiment pattern
+  type Cluster = { pattern: typeof SENTIMENT_PATTERNS[number]; videos: YouTubeVideo[]; avgEngagement: number; effectiveness: number };
+  const clusters: Cluster[] = [];
+
+  for (const pattern of SENTIMENT_PATTERNS) {
+    const matching = videos.filter(v => pattern.test(v.title || ''));
+    if (matching.length === 0) continue;
+    const avgEng = matching.reduce((sum, v) => sum + v.engagement_rate, 0) / matching.length;
+    clusters.push({
+      pattern,
+      videos: matching,
+      avgEngagement: avgEng,
+      effectiveness: channelAvgEngagement > 0 ? Math.round((avgEng / channelAvgEngagement) * 100) / 100 : 1.0,
+    });
+  }
+
+  // Sort by effectiveness descending — best-performing sentiment first
+  clusters.sort((a, b) => b.effectiveness - a.effectiveness);
+
+  // Also identify which patterns exist in the top quartile of performers
+  const sortedByEngagement = [...videos].sort((a, b) => b.engagement_rate - a.engagement_rate);
+  const topQuartile = sortedByEngagement.slice(0, Math.max(2, Math.floor(videos.length * 0.25)));
+  const topPatternNames = new Set<string>();
+  for (const v of topQuartile) {
+    const p = classifyTitleSentiment(v.title);
+    if (p) topPatternNames.add(p.name);
+  }
+
+  // Assign arc positions: opening = best cluster, peak = second-best or highest-engagement single video, etc.
+  const bestExample = (cluster: Cluster | undefined) =>
+    cluster ? cluster.videos.sort((a, b) => b.engagement_rate - a.engagement_rate)[0]?.title?.substring(0, 60) || '' : '';
+
+  // Opening: highest-effectiveness cluster (what hooks best)
+  const openingCluster = clusters[0];
+  // Peak: if there's a second high-performing cluster, use it; otherwise derive from top video
+  const peakCluster = clusters.length > 1 ? clusters[1] : openingCluster;
+  // Middle: the cluster with engagement closest to channel average (tension building)
+  const middleCluster = clusters.length > 2
+    ? clusters.reduce((closest, c) => Math.abs(c.effectiveness - 1.0) < Math.abs(closest.effectiveness - 1.0) ? c : closest)
+    : null;
+  // Close: the weakest cluster (opportunity for CTA improvement)
+  const closeCluster = clusters.length > 0 ? clusters[clusters.length - 1] : null;
+
+  // Detect missing beats: patterns NOT present in top quartile
+  const missingBeats: string[] = [];
+  for (const pattern of SENTIMENT_PATTERNS) {
+    if (!topPatternNames.has(pattern.name)) {
+      // Check if this pattern actually performs well when used (gap = underused but effective)
+      const cluster = clusters.find(c => c.pattern.name === pattern.name);
+      if (cluster && cluster.effectiveness > 1.0) {
+        missingBeats.push(`"${pattern.name}" beat (${pattern.technique}) — performs ${((cluster.effectiveness - 1) * 100).toFixed(0)}% above avg but absent from top videos`);
+      } else if (!cluster) {
+        missingBeats.push(`No "${pattern.name}" content detected — consider testing ${pattern.technique} technique`);
+      }
+    }
+  }
+
+  // If no clusters were found at all, fall back gracefully
+  if (clusters.length === 0) {
+    return fallbackEmotionalArc();
+  }
 
   return {
     opening: {
-      emotion: hasQuestion ? 'curiosity' : 'intrigue',
-      technique: hasQuestion ? 'mystery' : 'pattern_interrupt',
-      example: title.substring(0, 50),
-      effectiveness: 0.85,
+      emotion: openingCluster.pattern.emotion,
+      technique: openingCluster.pattern.technique,
+      example: bestExample(openingCluster),
+      effectiveness: openingCluster.effectiveness,
     },
     middle: {
-      emotion: 'skepticism',
-      technique: 'slow_revelation',
-      example: 'Build tension through unexplained details',
-      effectiveness: 0.70,
+      emotion: middleCluster?.pattern.emotion ?? 'tension',
+      technique: middleCluster?.pattern.technique ?? 'slow_revelation',
+      example: middleCluster ? bestExample(middleCluster) : 'Build tension through layered details',
+      effectiveness: middleCluster?.effectiveness ?? 1.0,
     },
     peak: {
-      emotion: 'satisfaction',
-      technique: 'revelation',
-      example: 'Explain the mystery, answer the question',
-      effectiveness: 0.88,
+      emotion: peakCluster.pattern.emotion,
+      technique: peakCluster.pattern.technique,
+      example: bestExample(peakCluster),
+      effectiveness: peakCluster.effectiveness,
     },
     close: {
-      emotion: 'urgency',
-      technique: 'call_to_action',
-      example: 'Subscribe for more explanations',
-      effectiveness: 0.65,
+      emotion: closeCluster?.pattern.emotion ?? 'urgency',
+      technique: closeCluster?.pattern.technique ?? 'call_to_action',
+      example: closeCluster ? bestExample(closeCluster) : 'Subscribe / follow-up CTA',
+      effectiveness: closeCluster?.effectiveness ?? 0.8,
     },
-    missing_beats: [
-      'Humor or tension relief in middle section',
-      'Surprise escalation at 1:30 mark',
-    ],
+    missing_beats: missingBeats.length > 0 ? missingBeats : ['All detected sentiment patterns are represented in top performers'],
+  };
+}
+
+/** Fallback for edge cases (no videos, no patterns detected) */
+function fallbackEmotionalArc(): EmotionalArc {
+  return {
+    opening: { emotion: 'intrigue', technique: 'pattern_interrupt', example: 'Insufficient data', effectiveness: 0 },
+    middle:  { emotion: 'tension', technique: 'slow_revelation', example: 'Insufficient data', effectiveness: 0 },
+    peak:    { emotion: 'surprise', technique: 'revelation', example: 'Insufficient data', effectiveness: 0 },
+    close:   { emotion: 'urgency', technique: 'call_to_action', example: 'Insufficient data', effectiveness: 0 },
+    missing_beats: ['Insufficient video data to analyze emotional arc — need 5+ videos'],
   };
 }
 
@@ -575,50 +710,150 @@ function detectPatterns(videos: YouTubeVideo[], niche: string): Pattern[] {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Competitor Gap Analysis
+// Competitor Gap Analysis — data-derived
 // ────────────────────────────────────────────────────────────────
 
+/**
+ * Format detectors used for gap analysis.
+ * Each defines a title-level test and a human-readable label + exploit strategy.
+ */
+const FORMAT_DETECTORS: Array<{
+  name: string;
+  label: string;
+  test: (title: string) => boolean;
+  exploit: string;
+}> = [
+  { name: 'ellipsis', label: 'Ellipsis/cliffhanger titles', test: t => t.includes('…') || t.includes('...'), exploit: 'End titles at the tension point with "…" to force click-through' },
+  { name: 'question', label: 'Question-format titles', test: t => t.includes('?'), exploit: 'Lead with a specific question viewers want answered' },
+  { name: 'caps_phrase', label: 'ALL-CAPS emphasis phrases', test: t => /[A-Z]{3,}/.test(t), exploit: 'Add one ALL-CAPS emotional phrase to signal intensity (e.g. "GOES OFF", "FINALLY")' },
+  { name: 'listicle', label: 'Numbered/listicle titles', test: t => /^\d+\s|\b\d+\s+(things|reasons|ways|tips|facts)/i.test(t), exploit: 'Structure content as numbered lists for clear value proposition in title' },
+  { name: 'personal', label: 'First-person framing ("I", "My")', test: t => /\bI\b|\bMy\b/.test(t), exploit: 'Add personal perspective to build parasocial connection' },
+  { name: 'name_drop', label: 'Celebrity/name-drop titles', test: t => /[A-Z][a-z]+ [A-Z][a-z]+/.test(t), exploit: 'Lead with recognizable names to leverage search and curiosity' },
+];
+
+/**
+ * Data-derived competitor gap analysis.
+ *
+ * Replaces all hardcoded gaps with gaps detected from actual video data:
+ * - Format gaps: patterns used in <20% of videos but showing >1.5x engagement
+ * - Engagement variance: flags inconsistent performance with stddev analysis
+ * - Recency gap: flags if recent uploads perform differently than older ones
+ *
+ * All confidence scores are computed via Bayesian confidence, not hardcoded.
+ */
 function analyzeCompetitorGaps(videos: YouTubeVideo[], niche: string): CompetitorGap[] {
   const gaps: CompetitorGap[] = [];
+  if (videos.length < 3) return gaps;
 
-  // Gap 1: Emotion combinations
-  gaps.push({
-    gap: 'Nostalgia + schadenfreude rarely combined',
-    why_it_matters: 'Drives 5x higher engagement than straight mystery or humor alone',
-    how_to_exploit: 'Frame old celebrity conflicts or moments through current news lens',
-    risk_level: 'medium',
-    confidence: 0.72,
-  });
+  const channelAvgEngagement = videos.reduce((sum, v) => sum + v.engagement_rate, 0) / videos.length;
+  const decayHalfLife = NICHE_DECAY_HALF_LIFE[niche] ?? 90;
 
-  // Gap 2: Format combinations
-  const titlePatterns = {
-    hasExplanation: videos.some(v => v.title?.includes('Explain') || v.title?.includes('Analysis')),
-    hasHumor: videos.some(v => v.title?.includes('Funny') || v.title?.includes('Hilarious')),
-    hasMystery: videos.some(v => v.title?.includes('Why') || v.title?.includes('Secret')),
-  };
+  // ── Format gaps: underused patterns that outperform when present ──
+  for (const detector of FORMAT_DETECTORS) {
+    const matching = videos.filter(v => detector.test(v.title || ''));
+    const notMatching = videos.filter(v => !detector.test(v.title || ''));
 
-  if (titlePatterns.hasExplanation && !titlePatterns.hasHumor) {
+    // Only flag if pattern is underused (<30% of videos) but has enough samples (>=2)
+    if (matching.length < 2 || matching.length >= videos.length * 0.3) continue;
+
+    const matchAvg = matching.reduce((sum, v) => sum + v.engagement_rate, 0) / matching.length;
+    const baseAvg = notMatching.length > 0
+      ? notMatching.reduce((sum, v) => sum + v.engagement_rate, 0) / notMatching.length
+      : channelAvgEngagement;
+
+    // Only flag if the underused pattern outperforms by at least 1.3x
+    if (matchAvg <= baseAvg * 1.3 || baseAvg <= 0) continue;
+
+    const delta = matchAvg / baseAvg;
+    const successes = matching.filter(v => v.engagement_rate > baseAvg).length;
+
+    const bayesian = calculateBayesianConfidence({
+      successes,
+      trials: matching.length,
+      performanceDelta: delta,
+      decayHalfLife,
+    });
+
+    if (bayesian.confidence < 0.40) continue;
+
     gaps.push({
-      gap: 'Analysis content rarely combines with comedy',
-      why_it_matters: 'Untapped intersection of explanation + entertainment value',
-      how_to_exploit: 'Add humorous asides, reactions, or observations during deep-dive analysis',
-      risk_level: 'low',
-      confidence: 0.65,
+      gap: `${detector.label} underused (${matching.length}/${videos.length} videos) but outperform by +${((delta - 1) * 100).toFixed(0)}%`,
+      why_it_matters: `Used in only ${Math.round(matching.length / videos.length * 100)}% of content but drives ${((delta - 1) * 100).toFixed(0)}% higher engagement when present`,
+      how_to_exploit: detector.exploit,
+      risk_level: bayesian.isTentative ? 'medium' : 'low',
+      confidence: bayesian.confidence,
     });
   }
 
-  // Gap 3: Engagement patterns
-  const highEngagement = videos.filter(v => v.engagement_rate > 1.5);
-  const lowEngagement = videos.filter(v => v.engagement_rate < 0.5);
+  // ── Engagement variance gap: flag high inconsistency ──
+  const engagementValues = videos.map(v => v.engagement_rate);
+  const mean = channelAvgEngagement;
+  const variance = engagementValues.reduce((sum, e) => sum + Math.pow(e - mean, 2), 0) / engagementValues.length;
+  const stddev = Math.sqrt(variance);
+  const coeffOfVariation = mean > 0 ? stddev / mean : 0;
 
-  if (highEngagement.length > 0 && lowEngagement.length > 0) {
-    gaps.push({
-      gap: 'Inconsistent engagement pattern — high variance in comment rates',
-      why_it_matters: 'Suggests some content formats trigger discussion, others don\'t',
-      how_to_exploit: 'Reverse-engineer high-engagement videos for common patterns (hook, structure, topic)',
-      risk_level: 'low',
-      confidence: 0.68,
+  if (coeffOfVariation > 0.8 && videos.length >= 5) {
+    // High CV means wildly inconsistent engagement — some formats work, others don't
+    const aboveAvg = videos.filter(v => v.engagement_rate > mean);
+    const belowAvg = videos.filter(v => v.engagement_rate <= mean);
+
+    const bayesian = calculateBayesianConfidence({
+      successes: aboveAvg.length,
+      trials: videos.length,
+      performanceDelta: aboveAvg.length > 0
+        ? (aboveAvg.reduce((s, v) => s + v.engagement_rate, 0) / aboveAvg.length) / Math.max(mean, 0.01)
+        : 1.0,
     });
+
+    gaps.push({
+      gap: `High engagement variance (CV=${coeffOfVariation.toFixed(2)}) — ${aboveAvg.length} videos above avg, ${belowAvg.length} below`,
+      why_it_matters: `Engagement swings from ${Math.min(...engagementValues).toFixed(1)}% to ${Math.max(...engagementValues).toFixed(1)}% — some formats clearly trigger discussion while others don't`,
+      how_to_exploit: 'Reverse-engineer the top-engagement videos for common patterns (hook style, title format, topic type) and double down on what works',
+      risk_level: 'low',
+      confidence: bayesian.confidence,
+    });
+  }
+
+  // ── Recency gap: recent uploads vs older ones ──
+  const sortedByDate = [...videos].sort((a, b) => {
+    const tsA = new Date(a.published_at || 0).getTime();
+    const tsB = new Date(b.published_at || 0).getTime();
+    return tsB - tsA; // newest first
+  });
+
+  const recentHalf = sortedByDate.slice(0, Math.floor(videos.length / 2));
+  const olderHalf = sortedByDate.slice(Math.floor(videos.length / 2));
+
+  if (recentHalf.length >= 2 && olderHalf.length >= 2) {
+    const recentAvg = recentHalf.reduce((s, v) => s + v.engagement_rate, 0) / recentHalf.length;
+    const olderAvg = olderHalf.reduce((s, v) => s + v.engagement_rate, 0) / olderHalf.length;
+    const ratio = olderAvg > 0 ? recentAvg / olderAvg : 1.0;
+
+    // Flag if there's a meaningful shift (>30% change in either direction)
+    if (Math.abs(ratio - 1.0) > 0.3) {
+      const improving = ratio > 1.0;
+      const bayesian = calculateBayesianConfidence({
+        successes: improving
+          ? recentHalf.filter(v => v.engagement_rate > olderAvg).length
+          : olderHalf.filter(v => v.engagement_rate > recentAvg).length,
+        trials: Math.min(recentHalf.length, olderHalf.length),
+        performanceDelta: improving ? ratio : 1 / ratio,
+      });
+
+      gaps.push({
+        gap: improving
+          ? `Recent content outperforms older by +${((ratio - 1) * 100).toFixed(0)}% — channel is improving`
+          : `Recent content underperforms older by ${((1 - ratio) * 100).toFixed(0)}% — possible format fatigue`,
+        why_it_matters: improving
+          ? 'Recent format changes are working — identify what changed and accelerate'
+          : 'Audience may be losing interest in current format — experiment with new approaches',
+        how_to_exploit: improving
+          ? 'Analyze what the last 5 videos did differently (hook, title style, topic) and codify it'
+          : 'Test a new format for 3 videos: different hook style, title structure, or topic angle',
+        risk_level: improving ? 'low' : 'medium',
+        confidence: bayesian.confidence,
+      });
+    }
   }
 
   return gaps.sort((a, b) => b.confidence - a.confidence);
@@ -1020,6 +1255,107 @@ export function getOutlierVideos(videos: YouTubeVideo[], topN = 5): YouTubeVideo
     .filter(v => v.is_outlier)
     .sort((a, b) => (b.outlier_score ?? 0) - (a.outlier_score ?? 0))
     .slice(0, topN);
+}
+
+// ────────────────────────────────────────────────────────────────
+// Pre-Production Confidence Score
+// ────────────────────────────────────────────────────────────────
+
+export interface PreProductionScoreResult {
+  score: number;                    // 0-100
+  matched_patterns: string[];       // patterns the concept matches
+  missing_patterns: string[];       // high-confidence patterns the concept doesn't use
+  arc_alignment: string;            // which emotional arc position this concept fits
+  confidence_weighted_score: number; // score weighted by pattern confidence values
+  summary: string;                  // human-readable one-liner
+}
+
+/**
+ * Score a proposed video concept against a God's Eye brief BEFORE production.
+ * Tells you how well aligned the concept is with what actually works on the channel.
+ *
+ * @param brief - A completed God's Eye brief for the channel
+ * @param concept - The proposed video idea
+ * @returns 0-100 score with breakdown
+ */
+export function preProductionScore(
+  brief: GodsEyeBrief,
+  concept: { title: string; hook?: string; format?: string }
+): PreProductionScoreResult {
+  const title = concept.title || '';
+  const hook = concept.hook || title;
+  const combined = `${title} ${hook} ${concept.format || ''}`.toLowerCase();
+
+  const matched: string[] = [];
+  const missing: string[] = [];
+  let confidenceSum = 0;
+  let matchedConfidenceSum = 0;
+
+  // Check each pattern from the brief
+  for (const pattern of brief.top_patterns) {
+    confidenceSum += pattern.confidence;
+
+    // Check if the concept's title/hook matches this pattern's indicators
+    const patternLower = pattern.pattern.toLowerCase();
+    const actionableLower = pattern.actionable_form.toLowerCase();
+
+    // Extract key terms from the pattern to check against concept
+    const isMatch =
+      // Direct keyword overlap
+      patternLower.split(/\s+/).filter(w => w.length > 4).some(w => combined.includes(w)) ||
+      // Structural matches
+      (patternLower.includes('question') && title.includes('?')) ||
+      (patternLower.includes('ellipsis') && (title.includes('…') || title.includes('...'))) ||
+      (patternLower.includes('controversy') && /GOES OFF|EXPOSE|CALLS OUT|RESPONDS/i.test(title)) ||
+      (patternLower.includes('explanation') && /here'?s why|the truth|real reason/i.test(title)) ||
+      (patternLower.includes('short clip') && concept.format?.toLowerCase().includes('short')) ||
+      (patternLower.includes('deep-dive') && concept.format?.toLowerCase().includes('long'));
+
+    if (isMatch) {
+      matched.push(pattern.pattern);
+      matchedConfidenceSum += pattern.confidence;
+    } else if (pattern.confidence >= 0.60) {
+      missing.push(`${pattern.pattern} (${Math.round(pattern.confidence * 100)}%)`);
+    }
+  }
+
+  // Pattern match score: what percentage of high-confidence patterns does this concept use?
+  const patternScore = brief.top_patterns.length > 0
+    ? (matched.length / brief.top_patterns.length) * 100
+    : 50;
+
+  // Confidence-weighted score: matches weighted by their confidence values
+  const weightedScore = confidenceSum > 0
+    ? (matchedConfidenceSum / confidenceSum) * 100
+    : 50;
+
+  // Arc alignment: which emotional beat does the title most closely match?
+  const sentiment = classifyTitleSentiment(title);
+  let arcAlignment = 'neutral';
+  if (sentiment) {
+    if (sentiment.emotion === brief.emotional_arc.opening.emotion) arcAlignment = 'opening (hook)';    else if (sentiment.emotion === brief.emotional_arc.peak.emotion) arcAlignment = 'peak (climax)';
+    else if (sentiment.emotion === brief.emotional_arc.middle.emotion) arcAlignment = 'middle (build)';
+    else arcAlignment = `${sentiment.emotion} (${sentiment.technique})`;
+  }
+
+  // Final score: 60% pattern match + 40% confidence-weighted
+  const score = Math.round(patternScore * 0.6 + weightedScore * 0.4);
+
+  // Summary
+  const summary = matched.length > 0
+    ? `Matches ${matched.length}/${brief.top_patterns.length} patterns (${score}/100). ` +
+      `Strongest: ${matched[0]}.` +
+      (missing.length > 0 ? ` Missing: ${missing[0]}.` : '')
+    : `No pattern matches detected (${score}/100). Consider incorporating: ${missing.slice(0, 2).join(', ') || 'more data needed'}.`;
+
+  return {
+    score,
+    matched_patterns: matched,
+    missing_patterns: missing,
+    arc_alignment: arcAlignment,
+    confidence_weighted_score: Math.round(weightedScore),
+    summary,
+  };
 }
 
 // ────────────────────────────────────────────────────────────────
