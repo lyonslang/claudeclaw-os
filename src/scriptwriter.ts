@@ -412,9 +412,35 @@ Output as JSON with this structure:
   `.trim();
 }
 
+const MAX_RETRIES = 3;
+const ALL_PIVOTS: PivotAngle[] = ['CONTRARIAN', 'MICRO_FACT', 'SYSTEMIC'];
+
 /**
- * Generate a script using the Scriptwriter system prompt and Sonnet
- * Phase 2: Real Sonnet API integration via Anthropic SDK
+ * Count how many quality gates a script output passed.
+ * Used to pick the "best" attempt when all retries are exhausted.
+ */
+function countPassedGates(output: ScriptOutput): number {
+  let count = 0;
+  const g = output.quality_gates;
+  if (g.passes_novelty_check) count++;
+  if (g.passes_aha_moment_gate) count++;
+  if (g.sensory_specificity >= 3) count++;
+  if (g.concept_density > 2) count++;
+  if (g.advertiser_review?.risk_level !== 'red') count++;
+  if (!output.constraints_applied.some(c => c.startsWith('Failed'))) count++;
+  return count;
+}
+
+/**
+ * Generate a script with automatic retry on gate failure.
+ *
+ * Retry strategy (up to 3 retries):
+ * - Novelty failure → force a different pivot from noveltyResult.requiredPivot
+ * - Blocklist hit → add caught phrases to negative_constraints
+ * - Advertiser red → add flagged section suggestions to negative_constraints
+ * - Other failures → try the next untried pivot angle
+ *
+ * If all retries exhausted, returns the best attempt (most gates passed).
  */
 export async function generateScript(
   niche: string,
@@ -423,16 +449,129 @@ export async function generateScript(
   forcedPivot?: PivotAngle,
   constraints?: NicheConstraints
 ): Promise<ScriptOutput> {
-  const scriptId = `script_${niche}_${Date.now()}`;
+  let bestAttempt: ScriptOutput | null = null;
+  let bestGateCount = -1;
+  const triedPivots: PivotAngle[] = [];
+  const retryReasons: string[] = [];
 
-  // If no pivot forced, sample one from the Bayesian governor (weighted by historical outlier rates)
-  const pivot: PivotAngle = forcedPivot ?? sampleNextPivotAngle(niche);
-
-  // Default constraints if none provided
-  const activeConstraints: NicheConstraints = constraints ?? {
+  // Mutable state that evolves across retries
+  let currentPivot: PivotAngle | undefined = forcedPivot;
+  let currentConstraints: NicheConstraints = constraints ?? {
     positive_anchors: brief.top_patterns.map(p => p.actionable_form),
     negative_constraints: [],
   };
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.log(`[RETRY] Attempt ${attempt + 1}/${MAX_RETRIES + 1}: ${retryReasons[retryReasons.length - 1]}`);
+    }
+
+    const result = await generateScriptOnce(
+      niche, brief, insightMechanism, currentPivot, currentConstraints, attempt
+    );
+
+    // Track this attempt
+    triedPivots.push(result.pivot_angle_used);
+    const gateCount = countPassedGates(result);
+    if (gateCount > bestGateCount) {
+      bestAttempt = result;
+      bestGateCount = gateCount;
+    }
+
+    // If production-ready, we're done
+    if (result.ready_for_production) {
+      if (attempt > 0) {
+        result.constraints_applied.push(`Succeeded on attempt ${attempt + 1}/${MAX_RETRIES + 1} (retried: ${retryReasons.join(', ')})`);
+      }
+      return result;
+    }
+
+    // If this was the last attempt, break
+    if (attempt === MAX_RETRIES) break;
+
+    // ── Determine what to change for the next retry ──
+
+    // Novelty failure → force a different pivot
+    if (!result.quality_gates.passes_novelty_check) {
+      const availablePivots = ALL_PIVOTS.filter(p => !triedPivots.includes(p));
+      if (availablePivots.length > 0) {
+        currentPivot = availablePivots[0];
+        retryReasons.push(`novelty fail → switching to ${currentPivot} pivot`);
+        continue;
+      }
+    }
+
+    // Blocklist hit → add caught phrases to negative constraints
+    const blocklistHits = result.constraints_applied
+      .filter(c => c.startsWith('Failed'));
+    if (result.constraints_applied.some(c => c.includes('blocklist'))) {
+      // Extract blocklist phrases from the constraint log
+      const existingNeg = new Set(currentConstraints.negative_constraints);
+      for (const phrase of NEGATIVE_BLOCKLIST) {
+        existingNeg.add(phrase);
+      }
+      currentConstraints = {
+        ...currentConstraints,
+        negative_constraints: [...existingNeg],
+      };
+      retryReasons.push('blocklist hit → tightened negative constraints');
+      // Also try a different pivot
+      const availablePivots = ALL_PIVOTS.filter(p => !triedPivots.includes(p));
+      if (availablePivots.length > 0) currentPivot = availablePivots[0];
+      continue;
+    }
+
+    // Advertiser red → add flagged suggestions to negative constraints
+    if (result.quality_gates.advertiser_review?.risk_level === 'red') {
+      const flags = result.quality_gates.advertiser_review.flagged_sections;
+      const existingNeg = new Set(currentConstraints.negative_constraints);
+      for (const flag of flags) {
+        existingNeg.add(flag.text); // ban the flagged text
+      }
+      currentConstraints = {
+        ...currentConstraints,
+        negative_constraints: [...existingNeg],
+      };
+      retryReasons.push(`advertiser red → banned ${flags.length} flagged term(s)`);
+      continue;
+    }
+
+    // Generic failure → try the next untried pivot
+    const availablePivots = ALL_PIVOTS.filter(p => !triedPivots.includes(p));
+    if (availablePivots.length > 0) {
+      currentPivot = availablePivots[0];
+      retryReasons.push(`gate failure → trying ${currentPivot} pivot`);
+    } else {
+      retryReasons.push('all pivots exhausted');
+      break; // no point retrying with the same pivot
+    }
+  }
+
+  // All retries exhausted — return the best attempt
+  if (bestAttempt) {
+    bestAttempt.constraints_applied.push(
+      `All ${MAX_RETRIES + 1} attempts exhausted. Returning best (${bestGateCount} gates passed). Retries: ${retryReasons.join(', ')}`
+    );
+  }
+  return bestAttempt!;
+}
+
+/**
+ * Single-attempt script generation (the core logic).
+ * Called by generateScript's retry loop.
+ */
+async function generateScriptOnce(
+  niche: string,
+  brief: GodsEyeBrief,
+  insightMechanism: InsightMechanism,
+  forcedPivot: PivotAngle | undefined,
+  activeConstraints: NicheConstraints,
+  attemptNumber: number
+): Promise<ScriptOutput> {
+  const scriptId = `script_${niche}_${Date.now()}_a${attemptNumber}`;
+
+  // If no pivot forced, sample one from the Bayesian governor (weighted by historical outlier rates)
+  const pivot: PivotAngle = forcedPivot ?? sampleNextPivotAngle(niche);
 
   // Build the system prompt with all constraints
   const systemPrompt = buildScriptwriterSystemPrompt(niche, pivot, insightMechanism, activeConstraints, brief);
