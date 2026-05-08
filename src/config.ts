@@ -43,6 +43,7 @@ const envConfig = readEnvFile([
   'WARROOM_PORT',
   'STREAM_STRATEGY',
   'YOUTUBE_API_KEY',
+  'HEYGEN_API_KEY',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -194,6 +195,10 @@ export const GOOGLE_API_KEY =
 // YouTube Data API v3 key for God's Eye channel analysis
 export const YOUTUBE_API_KEY =
   process.env.YOUTUBE_API_KEY || envConfig.YOUTUBE_API_KEY || '';
+
+// HeyGen API key for Skinwalker avatar rendering
+export const HEYGEN_API_KEY =
+  process.env.HEYGEN_API_KEY || envConfig.HEYGEN_API_KEY || '';
 
 // Streaming strategy for progressive Telegram updates.
 // 'global-throttle' (default): edits a placeholder message with streamed text,

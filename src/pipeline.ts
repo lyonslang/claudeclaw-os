@@ -19,6 +19,7 @@ import {
 } from './gods-eye-brief.js';
 import { generateScript, type ScriptOutput } from './scriptwriter.js';
 import { toHumanReadable } from './utils/bayesian-confidence.js';
+import { produce, type ProductionOutput } from './skinwalker.js';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -152,8 +153,41 @@ export async function scoreConceptForChannel(
   return { analysis, score };
 }
 
+/**
+ * Full production pipeline: analyze channel → generate script → produce video.
+ *
+ * The complete loop: channel URL → published video with voice, avatar, and branding.
+ */
+export async function produceVideo(
+  channelInput: string,
+  niche: string = 'general',
+  insightMechanism: 'COUNTER_INTUITIVE_CAUSALITY' | 'NARRATIVE_VOID' | 'PERSPECTIVE_SHIFT' = 'COUNTER_INTUITIVE_CAUSALITY',
+  opts: { maxVideos?: number; force?: boolean; colorGrade?: 'warm_cinematic' | 'cool_modern' | 'neutral' } = {}
+): Promise<{ analysis: AnalysisResult; script: ScriptOutput; production: ProductionOutput }> {
+  // Steps 1-5: Analyze + script
+  const pipelineResult = await analyzeAndScript(channelInput, niche, insightMechanism, opts);
+
+  // Step 6: Produce video from script
+  console.log(`[PIPELINE] Producing video with Skinwalker...`);
+  const production = await produce({
+    script: pipelineResult.script.script,
+    niche,
+    title: pipelineResult.script.title,
+    colorGrade: opts.colorGrade ?? 'warm_cinematic',
+  });
+
+  console.log(`[PIPELINE] Production ${production.status}: ${production.video_path ?? 'no output'}`);
+
+  return {
+    analysis: pipelineResult.analysis,
+    script: pipelineResult.script,
+    production,
+  };
+}
+
 export default {
   analyzeChannel,
   analyzeAndScript,
   scoreConceptForChannel,
+  produceVideo,
 };
