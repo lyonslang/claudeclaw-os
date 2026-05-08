@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server';
 
 import fs from 'fs';
 import path from 'path';
+import Database from 'better-sqlite3';
 import { AGENT_ID, ALLOWED_CHAT_ID, DASHBOARD_PORT, DASHBOARD_TOKEN, DASHBOARD_URL, PROJECT_ROOT, STORE_DIR, WHATSAPP_ENABLED, SLACK_USER_TOKEN, CONTEXT_LIMIT, agentDefaultModel, CLAUDECLAW_CONFIG } from './config.js';
 import crypto from 'crypto';
 import {
@@ -1867,6 +1868,60 @@ export function buildDashboardApp(botApi?: Api<RawApi>): Hono {
     return c.json({ stats, costTimeline, recentUsage });
   });
 
+  // Revenue analytics (ClaudeClaw)
+  app.get('/api/revenue', (c) => {
+    try {
+      const db = new Database(path.join(STORE_DIR, 'claudeclaw.db'));
+
+      // Project revenue summary
+      const projectRevenue = db.prepare(`
+        SELECT * FROM project_revenue_summary
+      `).all();
+
+      // Script to revenue correlation (last 20)
+      const scriptRevenue = db.prepare(`
+        SELECT
+          m.mission_id,
+          m.project_id,
+          m.niche,
+          m.total_cost_usd,
+          MAX(v.title) as title,
+          MAX(v.view_count) as views,
+          MAX(ya.cpm_usd) as cpm_usd,
+          MAX(ya.revenue_usd) as revenue_usd,
+          ROUND(MAX(ya.revenue_usd) / NULLIF(m.total_cost_usd, 0), 2) as roi
+        FROM mission_post_mortem m
+        LEFT JOIN video_outcomes vo ON m.project_id = vo.project_id AND m.niche = vo.niche
+        LEFT JOIN youtube_videos v ON vo.video_id = v.video_id
+        LEFT JOIN youtube_analytics ya ON v.video_id = ya.video_id
+        GROUP BY m.mission_id
+        ORDER BY m.created_at DESC
+        LIMIT 20
+      `).all();
+
+      // Top videos by revenue
+      const topVideos = db.prepare(`
+        SELECT
+          v.video_id,
+          v.title,
+          v.view_count,
+          ya.cpm_usd,
+          ya.revenue_usd,
+          ya.impressions
+        FROM youtube_videos v
+        JOIN youtube_analytics ya ON v.video_id = ya.video_id
+        WHERE ya.revenue_usd > 0
+        ORDER BY ya.revenue_usd DESC
+        LIMIT 10
+      `).all();
+
+      db.close();
+      return c.json({ projectRevenue, scriptRevenue, topVideos });
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 500);
+    }
+  });
+
   // Bot info (name, PID, chatId) — reads dynamically from state
   app.get('/api/info', (c) => {
     const chatId = c.req.query('chatId') || '';
@@ -2854,12 +2909,76 @@ export function buildDashboardApp(botApi?: Api<RawApi>): Hono {
     const agentId = c.req.query('agent') || undefined;
     const entries = getAuditLog(limit, offset, agentId);
     const total = getAuditLogCount(agentId);
-    return c.json({ entries, total });
+
+    // Include revenue analytics
+    const revenue: any = { projectRevenue: [], topVideos: [], scriptRevenue: [] };
+    try {
+      const db = new Database(path.join(STORE_DIR, 'claudeclaw.db'));
+      revenue.projectRevenue = db.prepare('SELECT * FROM project_revenue_summary').all() as any;
+      revenue.topVideos = db.prepare('SELECT v.video_id, v.title, v.view_count, ya.cpm_usd, ya.revenue_usd, ya.impressions FROM youtube_videos v JOIN youtube_analytics ya ON v.video_id = ya.video_id WHERE ya.revenue_usd > 0 ORDER BY ya.revenue_usd DESC LIMIT 10').all() as any;
+      revenue.scriptRevenue = db.prepare('SELECT m.mission_id, m.project_id, m.niche, m.total_cost_usd, MAX(v.title) as title, MAX(v.view_count) as views, MAX(ya.cpm_usd) as cpm_usd, MAX(ya.revenue_usd) as revenue_usd, ROUND(MAX(ya.revenue_usd) / NULLIF(m.total_cost_usd, 0), 2) as roi FROM mission_post_mortem m LEFT JOIN video_outcomes vo ON m.project_id = vo.project_id AND m.niche = vo.niche LEFT JOIN youtube_videos v ON vo.video_id = v.video_id LEFT JOIN youtube_analytics ya ON v.video_id = ya.video_id GROUP BY m.mission_id ORDER BY m.created_at DESC LIMIT 20').all() as any;
+      db.close();
+    } catch (error) {
+      // Revenue data is optional; don't fail the audit endpoint if it's unavailable
+    }
+
+    return c.json({ entries, total, revenue });
   });
 
   app.get('/api/audit/blocked', (c) => {
     const limit = parseInt(c.req.query('limit') || '10', 10);
     return c.json({ entries: getRecentBlockedActions(limit) });
+  });
+
+  // God's Eye analytics
+  app.get('/api/gods-eye', (c) => {
+    try {
+      const db = new Database(path.join(STORE_DIR, 'claudeclaw.db'));
+
+      const channel = db.prepare('SELECT * FROM youtube_channels LIMIT 1').get() as any;
+
+      const topVideos = db.prepare(`
+        SELECT
+          video_id, title, view_count, like_count, comment_count,
+          published_at,
+          ROUND(CAST(like_count AS REAL) / NULLIF(view_count, 0) * 100, 2) AS engagement_rate
+        FROM youtube_videos
+        ORDER BY view_count DESC
+        LIMIT 10
+      `).all() as any[];
+
+      const stats = db.prepare(`
+        SELECT
+          COUNT(*) as total_videos,
+          SUM(view_count) as total_views,
+          SUM(like_count) as total_likes,
+          SUM(comment_count) as total_comments,
+          ROUND(AVG(CAST(like_count AS REAL) / NULLIF(view_count, 0) * 100), 2) as avg_engagement_rate,
+          MAX(view_count) as max_views,
+          MIN(view_count) as min_views
+        FROM youtube_videos
+      `).get() as any;
+
+      const topComments = db.prepare(`
+        SELECT c.author, c.text, c.like_count, v.title as video_title
+        FROM youtube_comments c
+        JOIN youtube_videos v ON c.video_id = v.video_id
+        ORDER BY c.like_count DESC
+        LIMIT 5
+      `).all() as any[];
+
+      const recentVideos = db.prepare(`
+        SELECT title, view_count, published_at
+        FROM youtube_videos
+        ORDER BY published_at DESC
+        LIMIT 5
+      `).all() as any[];
+
+      db.close();
+      return c.json({ channel, topVideos, stats, topComments, recentVideos });
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Failed to load God\'s Eye data' }, 500);
+    }
   });
 
   // Hive mind feed

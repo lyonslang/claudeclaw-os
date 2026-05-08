@@ -1225,23 +1225,44 @@ export function batchUpdateMemoryRelevance(
 }
 
 /**
- * Importance-weighted decay. High-importance memories decay slower.
- * Pinned memories are exempt from decay entirely.
- * - pinned:             no decay (permanent)
- * - importance >= 0.8:  1% per day (retains ~460 days)
- * - importance >= 0.5:  2% per day (retains ~230 days)
- * - importance < 0.5:   5% per day (retains ~90 days)
+ * Bayesian-informed memory decay.
+ *
+ * Replaces the old fixed-tier system with a formula that factors in access recency.
+ * Memories that are actively accessed decay much slower than untouched ones,
+ * regardless of their initial importance score.
+ *
+ * Decay multiplier per day:
+ * - Pinned: no decay (permanent)
+ * - Recently accessed (last 7 days): 0.995 (very slow — actively useful)
+ * - importance >= 0.8 AND accessed within 30 days: 0.993
+ * - importance >= 0.8: 0.99 (1% per day, ~460 days)
+ * - importance >= 0.5 AND accessed within 30 days: 0.985
+ * - importance >= 0.5: 0.98 (2% per day, ~230 days)
+ * - accessed within 30 days: 0.97 (access keeps it alive longer)
+ * - default: 0.95 (5% per day, ~90 days)
+ *
+ * The key insight: a low-importance memory that keeps getting accessed
+ * should decay slower than a high-importance memory that was never useful.
  */
 export function decayMemories(): void {
-  const oneDayAgo = Math.floor(Date.now() / 1000) - 86400;
+  const now = Math.floor(Date.now() / 1000);
+  const oneDayAgo = now - 86400;
+  const sevenDaysAgo = now - 7 * 86400;
+  const thirtyDaysAgo = now - 30 * 86400;
+
   db.prepare(`
     UPDATE memories SET salience = salience * CASE
+      WHEN accessed_at > ? THEN 0.995
+      WHEN importance >= 0.8 AND accessed_at > ? THEN 0.993
       WHEN importance >= 0.8 THEN 0.99
+      WHEN importance >= 0.5 AND accessed_at > ? THEN 0.985
       WHEN importance >= 0.5 THEN 0.98
+      WHEN accessed_at > ? THEN 0.97
       ELSE 0.95
     END
     WHERE created_at < ? AND pinned = 0
-  `).run(oneDayAgo);
+  `).run(sevenDaysAgo, thirtyDaysAgo, thirtyDaysAgo, thirtyDaysAgo, oneDayAgo);
+
   // Clear superseded_by references pointing to memories we're about to delete,
   // otherwise the FOREIGN KEY constraint on superseded_by -> memories(id) fails.
   db.prepare(`
@@ -4421,4 +4442,106 @@ export function getGodSEyeCacheStats(): {
     averageAccessCount: stats.avg_access_count || 0,
     expiredCount: stats.expired_count || 0,
   };
+}
+
+// ── Mission Post-Mortem Logging ───────────────────────────────────────
+
+export function logMissionPostMortem(data: {
+  missionId: string;
+  agentId: string;
+  missionTitle: string;
+  projectId?: string;
+  niche?: string;
+  startedAt: number;
+  completedAt: number;
+  godSEyeCallsTotal: number;
+  godSEyeCallsCached: number;
+  godSEyeCallsApi: number;
+  godSEyeCost: number;
+  antiSlopChecksTotal: number;
+  antiSlopChecksCached: number;
+  antiSlopRejections: number;
+  antiSlopFlags: number;
+  totalCostUsd: number;
+  peakContextTokens: number;
+  averageContextTokens: number;
+  autonomousDecisionsMade: number;
+  escalationsToAva: number;
+  escalationsAccepted: number;
+  escalationsRejected: number;
+  numOutputsProduced: number;
+  outputsApprovedFirstPass: number;
+  outputsRejectedTotal: number;
+  revisionRoundsTotal: number;
+  frictionPoints: any; // JSON array
+  loopDetections: any; // JSON array
+  expectedCost: number;
+  expectedDurationSeconds: number;
+  status: 'completed' | 'failed' | 'incomplete';
+  summary: string;
+}): void {
+  const durationSeconds = data.completedAt - data.startedAt;
+  const costVariancePercent = data.expectedCost > 0
+    ? ((data.totalCostUsd - data.expectedCost) / data.expectedCost) * 100
+    : null;
+  const durationVariancePercent = data.expectedDurationSeconds > 0
+    ? ((durationSeconds - data.expectedDurationSeconds) / data.expectedDurationSeconds) * 100
+    : null;
+  const contextWindowPressurePercent = data.peakContextTokens > 0
+    ? (data.peakContextTokens / 1000000) * 100
+    : null;
+
+  db.prepare(
+    `INSERT INTO mission_post_mortem (
+      mission_id, agent_id, mission_title, project_id, niche,
+      started_at, completed_at, duration_seconds,
+      god_s_eye_calls_total, god_s_eye_calls_cached, god_s_eye_calls_api, god_s_eye_cost,
+      anti_slop_checks_total, anti_slop_checks_cached, anti_slop_rejections, anti_slop_flags,
+      total_cost_usd,
+      peak_context_tokens, average_context_tokens, context_window_pressure_percent,
+      autonomous_decisions_made, escalations_to_ava, escalations_accepted, escalations_rejected,
+      num_outputs_produced, outputs_approved_first_pass, outputs_rejected_total, revision_rounds_total,
+      friction_points, loop_detections,
+      expected_cost, expected_duration_seconds,
+      cost_variance_percent, duration_variance_percent,
+      status, summary
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    data.missionId,
+    data.agentId,
+    data.missionTitle,
+    data.projectId || null,
+    data.niche || null,
+    data.startedAt,
+    data.completedAt,
+    durationSeconds,
+    data.godSEyeCallsTotal,
+    data.godSEyeCallsCached,
+    data.godSEyeCallsApi,
+    data.godSEyeCost,
+    data.antiSlopChecksTotal,
+    data.antiSlopChecksCached,
+    data.antiSlopRejections,
+    data.antiSlopFlags,
+    data.totalCostUsd,
+    data.peakContextTokens,
+    data.averageContextTokens,
+    contextWindowPressurePercent,
+    data.autonomousDecisionsMade,
+    data.escalationsToAva,
+    data.escalationsAccepted,
+    data.escalationsRejected,
+    data.numOutputsProduced,
+    data.outputsApprovedFirstPass,
+    data.outputsRejectedTotal,
+    data.revisionRoundsTotal,
+    typeof data.frictionPoints === 'string' ? data.frictionPoints : JSON.stringify(data.frictionPoints),
+    typeof data.loopDetections === 'string' ? data.loopDetections : JSON.stringify(data.loopDetections),
+    data.expectedCost,
+    data.expectedDurationSeconds,
+    costVariancePercent,
+    durationVariancePercent,
+    data.status,
+    data.summary
+  );
 }

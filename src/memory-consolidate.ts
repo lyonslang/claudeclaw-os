@@ -6,6 +6,7 @@ import {
 } from './db.js';
 import { embedText } from './embeddings.js';
 import { logger } from './logger.js';
+import { scoreMemories } from './utils/memory-bayesian.js';
 
 interface ConsolidationResult {
   summary: string;
@@ -24,15 +25,21 @@ interface ConsolidationResult {
 
 const CONSOLIDATION_PROMPT = `You are a memory consolidation agent. You find patterns and connections across a user's recent memories.
 
-Given these unconsolidated memories:
+Given these unconsolidated memories (sorted by Bayesian confidence — higher confidence memories are more reliably established facts):
 {MEMORIES}
 
+Each memory includes a bayesian_confidence score (0-1) and a confidence_tier:
+- core (0.8+): Frequently accessed, well-connected — treat as established facts
+- established (0.6-0.8): Solid evidence of usefulness
+- developing (0.4-0.6): Some evidence but still building
+- tentative (<0.4): New or rarely accessed — treat with less weight
+
 Your job:
-1. Find cross-cutting patterns, themes, or connections between memories
-2. Create a synthesized summary that captures the overall picture
+1. Find cross-cutting patterns, themes, or connections between memories. Prioritize patterns involving HIGH-CONFIDENCE memories.
+2. Create a synthesized summary that captures the overall picture. Weight core/established memories more heavily.
 3. Identify one key insight that emerges from these memories together
 4. Map connections between specific memories (use their IDs)
-5. Check for CONTRADICTIONS: if any memory updates, corrects, or supersedes an earlier one, flag it. IMPORTANT: Compare the created_at timestamps to determine which is newer. The memory with the LATER timestamp is authoritative (it's the correction). Set stale_id to the OLDER memory's ID and supersedes_id to the NEWER memory's ID.
+5. Check for CONTRADICTIONS: if any memory updates, corrects, or supersedes an earlier one, flag it. When a tentative memory contradicts a core memory, the core memory is likely correct. IMPORTANT: Compare the created_at timestamps to determine which is newer. The memory with the LATER timestamp is authoritative (it's the correction). Set stale_id to the OLDER memory's ID and supersedes_id to the NEWER memory's ID.
 
 Return JSON:
 {
@@ -71,15 +78,30 @@ export async function runConsolidation(chatId: string): Promise<void> {
       return;
     }
 
-    // Format memories for Gemini
-    const memoriesJson = memories.map((m) => ({
-      id: m.id,
-      summary: m.summary,
-      entities: JSON.parse(m.entities),
-      topics: JSON.parse(m.topics),
-      importance: m.importance,
-      created_at: new Date(m.created_at * 1000).toISOString(),
-    }));
+    // Score memories with Bayesian confidence so Gemini knows which are most reliable
+    const bayesianScores = scoreMemories(memories);
+
+    // Sort by Bayesian confidence descending — high-confidence memories first in the prompt
+    const sortedMemories = [...memories].sort((a, b) => {
+      const scoreA = bayesianScores.get(a.id)?.confidence ?? 0;
+      const scoreB = bayesianScores.get(b.id)?.confidence ?? 0;
+      return scoreB - scoreA;
+    });
+
+    // Format memories for Gemini with Bayesian confidence scores
+    const memoriesJson = sortedMemories.map((m) => {
+      const score = bayesianScores.get(m.id);
+      return {
+        id: m.id,
+        summary: m.summary,
+        entities: JSON.parse(m.entities),
+        topics: JSON.parse(m.topics),
+        importance: m.importance,
+        bayesian_confidence: score?.confidence ?? 0,
+        confidence_tier: score?.tier ?? 'tentative',
+        created_at: new Date(m.created_at * 1000).toISOString(),
+      };
+    });
 
     const prompt = CONSOLIDATION_PROMPT.replace(
       '{MEMORIES}',

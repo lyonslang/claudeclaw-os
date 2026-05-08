@@ -185,6 +185,10 @@ const WARROOM_ENABLED = warroomEnabled;
     <span class="summary-stat-val" id="sum-cost">-</span>
     <span class="summary-stat-label">Tokens Today</span>
   </div>
+  <div class="summary-stat clickable-card" onclick="document.getElementById('audit-section').scrollIntoView({behavior:'smooth'})" style="cursor:pointer">
+    <span class="summary-stat-val" id="sum-revenue">-</span>
+    <span class="summary-stat-label">Total Revenue</span>
+  </div>
   <div class="summary-stat clickable-card" onclick="openMemoryDrawer()" style="cursor:pointer">
     <span class="summary-stat-val" id="sum-memories">-</span>
     <span class="summary-stat-label">Memories</span>
@@ -584,9 +588,164 @@ ${WARROOM_ENABLED ? `<div class="card" style="border:1px solid #1e3a5f">
 
 </div>
 
+<!-- Audit & Analytics -->
+<div id="audit-section" class="mt-5 mb-8" style="display:none">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2">Audit & Analytics<span class="info-tip"><span class="info-icon">ℹ️</span><span class="info-tooltip">System audit log and revenue analytics. YouTube CPM (Cost Per Mille) and revenue per project.</span></span><button class="privacy-toggle" onclick="toggleSectionBlur('audit')" title="Toggle blur">&#128065;</button></h2>
+
+  <!-- Revenue Analytics Sub-section -->
+  <div id="revenue-subsection" style="display:none; margin-bottom:16px">
+    <!-- Project Revenue Summary -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">💰 Revenue by Project</div>
+      <div id="revenue-projects" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Project</th>
+              <th style="text-align:right; padding:6px">Videos</th>
+              <th style="text-align:right; padding:6px">Total Views</th>
+              <th style="text-align:right; padding:6px">Avg CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">Script Cost</th>
+              <th style="text-align:right; padding:6px">ROI</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-projects-body">
+            <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Top Videos by Revenue -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">🎬 Top Videos by Revenue</div>
+      <div id="revenue-videos" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Title</th>
+              <th style="text-align:right; padding:6px">Views</th>
+              <th style="text-align:right; padding:6px">CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">Impressions</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-videos-body">
+            <tr><td colspan="5" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Script to Revenue Correlation -->
+    <div class="card mb-3">
+      <div class="text-xs text-gray-400 mb-2">📊 Script → Revenue ROI</div>
+      <div id="revenue-scripts" style="overflow-x: auto">
+        <table style="width:100%; font-size:11px; border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #333">
+              <th style="text-align:left; padding:6px">Mission ID</th>
+              <th style="text-align:left; padding:6px">Project</th>
+              <th style="text-align:right; padding:6px">Script Cost</th>
+              <th style="text-align:right; padding:6px">Views</th>
+              <th style="text-align:right; padding:6px">CPM</th>
+              <th style="text-align:right; padding:6px">Revenue</th>
+              <th style="text-align:right; padding:6px">ROI</th>
+            </tr>
+          </thead>
+          <tbody id="revenue-scripts-body">
+            <tr><td colspan="7" style="text-align:center; padding:12px; color:#666">-</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audit Log Sub-section -->
+  <div class="card">
+    <div class="text-xs text-gray-400 mb-2">📋 Audit Log</div>
+    <div id="audit-log" style="overflow-x: auto">
+      <table style="width:100%; font-size:11px; border-collapse:collapse">
+        <thead>
+          <tr style="border-bottom:1px solid #333">
+            <th style="text-align:left; padding:6px">Time</th>
+            <th style="text-align:left; padding:6px">Agent</th>
+            <th style="text-align:left; padding:6px">Action</th>
+          </tr>
+        </thead>
+        <tbody id="audit-log-body">
+          <tr><td colspan="3" style="text-align:center; padding:12px; color:#666">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 </div><!-- end RIGHT COLUMN -->
 
 </div><!-- end grid -->
+
+<!-- God's Eye Analytics (full width below grid) -->
+<div id="gods-eye-section" class="mt-8 mb-8" style="display:none">
+  <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">God's Eye
+    <span style="font-size:11px;color:#6b7280;font-weight:400;text-transform:none;letter-spacing:0"> — YouTube Intelligence</span>
+    <span class="info-tip"><span class="info-icon">&#8505;</span><span class="info-tooltip">YouTube channel performance data ingested by the God's Eye agent. Ground truth for meta-learning and anti-slop decisions.</span></span>
+  </h2>
+
+  <!-- Channel Overview -->
+  <div id="gods-eye-channel" class="card mb-3" style="display:none">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <div style="font-size:16px;font-weight:700;color:#fff" id="ge-channel-title">-</div>
+        <div style="font-size:11px;color:#6b7280;margin-top:2px" id="ge-channel-url">-</div>
+      </div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#a5b4fc" id="ge-subs">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Subscribers</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#34d399" id="ge-views">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Total Views</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#f59e0b" id="ge-videos">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Videos</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:20px;font-weight:700;color:#f87171" id="ge-avg-eng">-</div>
+          <div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px">Avg Engagement</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Videos + Top Comments side by side on desktop -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+    <div class="card">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Top Videos by Views</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead>
+            <tr style="border-bottom:1px solid #2a2a2a">
+              <th style="text-align:left;padding:5px 6px;color:#555;font-weight:600">Title</th>
+              <th style="text-align:right;padding:5px 6px;color:#555;font-weight:600">Views</th>
+              <th style="text-align:right;padding:5px 6px;color:#555;font-weight:600">Eng%</th>
+            </tr>
+          </thead>
+          <tbody id="ge-top-videos"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px">Top Comments</div>
+      <div id="ge-top-comments" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+</div>
+
 </div><!-- end outer wrapper -->
 
 <!-- Memory drill-down drawer -->
@@ -1005,6 +1164,109 @@ async function loadTokens() {
     if (cacheChart) cacheChart.destroy();
   } catch(e) {
     console.error('Token load error', e);
+  }
+}
+
+async function loadGodsEye() {
+  try {
+    const data = await api('/api/gods-eye');
+    if (!data || data.error) return;
+
+    document.getElementById('gods-eye-section').style.display = '';
+
+    // Channel card
+    if (data.channel) {
+      const ch = data.channel;
+      document.getElementById('gods-eye-channel').style.display = '';
+      document.getElementById('ge-channel-title').textContent = ch.title || '-';
+      document.getElementById('ge-channel-url').textContent = ch.custom_url || ch.channel_id || '';
+      document.getElementById('ge-subs').textContent = (ch.subscriber_count || 0).toLocaleString();
+      document.getElementById('ge-views').textContent = formatViews(ch.view_count || 0);
+      document.getElementById('ge-videos').textContent = (ch.video_count || 0).toLocaleString();
+      document.getElementById('ge-avg-eng').textContent = (data.stats?.avg_engagement_rate || 0).toFixed(2) + '%';
+    }
+
+    // Top videos table
+    const vBody = document.getElementById('ge-top-videos');
+    if (data.topVideos && data.topVideos.length > 0) {
+      vBody.innerHTML = data.topVideos.map((v, i) => {
+        const engColor = v.engagement_rate > 3 ? '#34d399' : v.engagement_rate > 1 ? '#f59e0b' : '#6b7280';
+        return '<tr style="border-bottom:1px solid #1e1e1e">'
+          + '<td style="padding:5px 6px;color:#d4d4d8;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + escapeHtml(v.title || '') + '">'
+          + '<span style="color:#4b5563;margin-right:5px">' + (i + 1) + '.</span>' + escapeHtml((v.title || '').substring(0, 38)) + ((v.title || '').length > 38 ? '…' : '') + '</td>'
+          + '<td style="text-align:right;padding:5px 6px;color:#a5b4fc;white-space:nowrap">' + formatViews(v.view_count) + '</td>'
+          + '<td style="text-align:right;padding:5px 6px;color:' + engColor + ';white-space:nowrap">' + (v.engagement_rate || 0).toFixed(2) + '%</td>'
+          + '</tr>';
+      }).join('');
+    }
+
+    // Top comments
+    const cContainer = document.getElementById('ge-top-comments');
+    if (data.topComments && data.topComments.length > 0) {
+      cContainer.innerHTML = data.topComments.map(c =>
+        '<div style="background:#111;border:1px solid #222;border-radius:8px;padding:8px 10px">'
+        + '<div style="font-size:10px;color:#6b7280;margin-bottom:4px">'
+        + '<strong style="color:#a5b4fc">' + escapeHtml(c.author || '') + '</strong>'
+        + ' &middot; ' + (c.like_count || 0) + ' likes'
+        + ' &middot; <span style="color:#4b5563">' + escapeHtml((c.video_title || '').substring(0, 30)) + '…</span>'
+        + '</div>'
+        + '<div style="font-size:11px;color:#d4d4d8;line-height:1.5">' + escapeHtml((c.text || '').substring(0, 120)) + ((c.text && c.text.length > 120) ? '…' : '') + '</div>'
+        + '</div>'
+      ).join('');
+    }
+  } catch(e) {
+    console.error('Gods Eye load error', e);
+  }
+}
+
+function formatViews(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+async function loadAudit() {
+  try {
+    const data = await api('/api/audit?limit=10&offset=0');
+    const hasRevenue = data.revenue && (data.revenue.projectRevenue && data.revenue.projectRevenue.length > 0);
+    const hasAudit = data.entries && data.entries.length > 0;
+
+    if (hasRevenue || hasAudit) {
+      document.getElementById('audit-section').style.display = '';
+    }
+
+    // Load revenue data if available
+    if (hasRevenue) {
+      document.getElementById('revenue-subsection').style.display = '';
+
+      const projectsBody = document.getElementById('revenue-projects-body');
+      if (data.revenue.projectRevenue.length > 0) {
+        projectsBody.innerHTML = data.revenue.projectRevenue.map(p => '<tr style="border-bottom:1px solid #222"><td style="padding:6px"><strong>' + escapeHtml(p.name || p.project_id) + '</strong></td><td style="text-align:right; padding:6px">' + (p.total_videos || 0) + '</td><td style="text-align:right; padding:6px">' + ((p.total_views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (p.avg_cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (p.total_revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">$' + (p.total_script_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (p.overall_roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (p.overall_roi || 0).toFixed(1) + 'x</td></tr>').join('');
+        const totalRev = data.revenue.projectRevenue.reduce((sum, p) => sum + (p.total_revenue_usd || 0), 0);
+        document.getElementById('sum-revenue').textContent = '$' + totalRev.toFixed(0);
+      }
+
+      const videosBody = document.getElementById('revenue-videos-body');
+      if (data.revenue.topVideos && data.revenue.topVideos.length > 0) {
+        videosBody.innerHTML = data.revenue.topVideos.map(v => '<tr style="border-bottom:1px solid #222"><td style="padding:6px">' + escapeHtml(v.title.substring(0, 40)) + '</td><td style="text-align:right; padding:6px">' + ((v.view_count || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (v.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (v.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#6b7280">' + ((v.impressions || 0).toLocaleString()) + '</td></tr>').join('');
+      }
+
+      const scriptsBody = document.getElementById('revenue-scripts-body');
+      if (data.revenue.scriptRevenue && data.revenue.scriptRevenue.length > 0) {
+        scriptsBody.innerHTML = data.revenue.scriptRevenue.map(s => '<tr style="border-bottom:1px solid #222"><td style="padding:6px; font-size:10px; color:#999">' + escapeHtml(s.mission_id || '-') + '</td><td style="padding:6px">' + escapeHtml(s.project_id || '-') + '</td><td style="text-align:right; padding:6px">$' + (s.total_cost_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px">' + ((s.views || 0).toLocaleString()) + '</td><td style="text-align:right; padding:6px; color:#10b981">$' + (s.cpm_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:#f59e0b; font-weight:600">$' + (s.revenue_usd || 0).toFixed(2) + '</td><td style="text-align:right; padding:6px; color:' + (s.roi > 1 ? '#22c55e' : '#ef4444') + '; font-weight:600">' + (s.roi || 0).toFixed(1) + 'x</td></tr>').join('');
+      }
+    }
+
+    // Load audit log
+    const auditBody = document.getElementById('audit-log-body');
+    if (hasAudit) {
+      auditBody.innerHTML = data.entries.map(e => '<tr style="border-bottom:1px solid #222"><td style="padding:6px; font-size:10px; color:#6b7280">' + new Date(e.created_at).toLocaleTimeString() + '</td><td style="padding:6px; color:#a5b4fc"><strong>' + escapeHtml(e.agent_id || 'system') + '</strong></td><td style="padding:6px; color:#d4d4d8">' + escapeHtml(e.action || '') + '</td></tr>').join('');
+    } else {
+      auditBody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:12px; color:#666">No audit entries</td></tr>';
+    }
+  } catch(e) {
+    console.error('Audit load error', e);
+    document.getElementById('audit-log-body').innerHTML = '<tr><td colspan="3" style="text-align:center; padding:12px; color:#f87171">Error loading audit data</td></tr>';
   }
 }
 
@@ -2451,7 +2713,7 @@ setInterval(loadMissionControl, 15000);
 async function refreshAll() {
   const btn = document.getElementById('refresh-btn').querySelector('svg');
   btn.classList.add('refresh-spin');
-  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
+  await Promise.all([loadInfo(), loadTasks(), loadMemories(), loadHealth(), loadTokens(), loadAudit(), loadGodsEye(), loadAgents(), loadHiveMind(), loadSummary(), loadMissionControl()]);
   btn.classList.remove('refresh-spin');
   document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
 }
