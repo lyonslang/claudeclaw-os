@@ -28,6 +28,9 @@ import { checkForSlop } from './anti-slop.js';
 // Bayesian pivot governor — samples pivot angles weighted by historical outlier rates
 import { sampleNextPivotAngle, recordPivotGeneration } from './bayesian-pivot-governor.js';
 
+// Advertiser safety review — grades script against YouTube 2026 guidelines
+import { reviewForAdvertiserSafety, type AdvertiserReviewResult } from './advertiser-review.js';
+
 interface ScriptJSON {
   hook: string;
   act_1: {
@@ -122,6 +125,7 @@ export interface ScriptOutput {
     concept_density: number;
     passes_novelty_check: boolean;
     passes_aha_moment_gate: boolean;
+    advertiser_review: AdvertiserReviewResult | null;
   };
   constraints_applied: string[];
   ready_for_production: boolean;
@@ -539,6 +543,28 @@ export async function generateScript(
   const passesConceptDensityGate = conceptDensity > 2; // Low threshold: some variance required
   const passesAntislopGate = slopCheckResult.safeToProduce;
 
+  // Advertiser safety review — runs after creative gates, before ready_for_production
+  // Only run if creative gates all pass (no point reviewing a script that already failed)
+  const creativeGatesPass = passesAhaGate && passesSensoryGate && passesConceptDensityGate &&
+    blocklist.length === 0 && passesNoveltyCheck && passesAntislopGate;
+
+  let advertiserReview: AdvertiserReviewResult | null = null;
+  if (creativeGatesPass) {
+    try {
+      advertiserReview = await reviewForAdvertiserSafety(scriptJson, { forceReview: true });
+      console.log(`[ADVERTISER_REVIEW] ${advertiserReview.risk_level.toUpperCase()}: ${advertiserReview.summary}`);
+      if (advertiserReview.flagged_sections.length > 0) {
+        for (const flag of advertiserReview.flagged_sections) {
+          console.warn(`  [${flag.severity.toUpperCase()}] ${flag.section}: ${flag.category} — ${flag.suggestion}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[ADVERTISER_REVIEW] Failed: ${error}. Skipping review.`);
+    }
+  }
+
+  const passesAdvertiserGate = advertiserReview ? advertiserReview.risk_level !== 'red' : true;
+
   const output: ScriptOutput = {
     script_id: scriptId,
     niche,
@@ -551,8 +577,9 @@ export async function generateScript(
       sensory_specificity: sensoryCount,
       rhythmic_variance: conceptDensity > 5 ? 'high' : conceptDensity > 2 ? 'medium' : 'low',
       concept_density: conceptDensity,
-      passes_novelty_check: passesNoveltyCheck,  // Phase 2b: Wired
-      passes_aha_moment_gate: passesAhaGate,     // Phase 2c: Validated
+      passes_novelty_check: passesNoveltyCheck,
+      passes_aha_moment_gate: passesAhaGate,
+      advertiser_review: advertiserReview,
     },
     constraints_applied: [
       `Applied ${pivot} pivot angle${!forcedPivot ? ' (Bayesian-sampled)' : ''}`,
@@ -563,14 +590,10 @@ export async function generateScript(
       passesSensoryGate ? `Passed Sensory Gate: ${sensoryCount} sensory details` : `Failed Sensory Gate: only ${sensoryCount}/3 required sensory details`,
       passesAhaGate ? `Passed AHA Gate: ${ahaCount} insight payoffs` : `Failed AHA Gate: only ${ahaCount}/3 required insights`,
       passesAntislopGate ? `Passed Anti-Slop: ${slopCheckResult.originalityScore}% originality` : `Failed Anti-Slop: ${slopCheckResult.originalityScore}% (risk: ${slopCheckResult.riskLevel})`,
+      advertiserReview ? `Advertiser Review: ${advertiserReview.risk_level} (${advertiserReview.estimated_monetization} monetization)` : 'Advertiser Review: skipped (creative gates failed)',
     ],
     ready_for_production:
-      passesAhaGate &&
-      passesSensoryGate &&
-      passesConceptDensityGate &&
-      blocklist.length === 0 &&
-      passesNoveltyCheck &&
-      passesAntislopGate,  // Phase 2c: All gates must pass
+      creativeGatesPass && passesAdvertiserGate,
   };
 
   // If production-ready and passes all gates, record to production history
