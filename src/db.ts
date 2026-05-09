@@ -892,6 +892,11 @@ function runMigrations(database: Database.Database): void {
       ON conversation_log(source, source_meeting_id, source_turn_id, agent_id)
       WHERE source != 'telegram' AND role = 'assistant';
   `);
+
+  // YouTube Analytics: add returning/new viewer percentage columns to channel_snapshots.
+  // These are populated by the YouTube Analytics API (OAuth2) when configured.
+  addColumnIfMissing(database, 'channel_snapshots', 'returning_viewer_pct', 'REAL NOT NULL DEFAULT 0');
+  addColumnIfMissing(database, 'channel_snapshots', 'new_viewer_pct', 'REAL NOT NULL DEFAULT 0');
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
@@ -4442,6 +4447,109 @@ export function getGodSEyeCacheStats(): {
     averageAccessCount: stats.avg_access_count || 0,
     expiredCount: stats.expired_count || 0,
   };
+}
+
+// ── Channel Snapshots (audience metrics + health scores) ──────────────────
+
+export interface ChannelSnapshot {
+  id: number;
+  channel_id: string;
+  platform: string;
+  snapshot_date: string;
+  subscriber_count: number;
+  total_views: number;
+  avg_engagement_rate: number;
+  watch_time_hours: number;
+  health_score: number;
+  email_health_score: number;
+  sponsor_ready_score: number;
+  returning_viewer_pct: number;
+  new_viewer_pct: number;
+  notes: string;
+  created_at: number;
+}
+
+/** Upsert a channel snapshot (one per channel+platform+date). */
+export function upsertChannelSnapshot(data: {
+  channel_id: string;
+  platform?: string;
+  snapshot_date: string;
+  subscriber_count?: number;
+  total_views?: number;
+  avg_engagement_rate?: number;
+  watch_time_hours?: number;
+  health_score?: number;
+  email_health_score?: number;
+  sponsor_ready_score?: number;
+  returning_viewer_pct?: number;
+  new_viewer_pct?: number;
+  notes?: string;
+}): ChannelSnapshot {
+  const platform = data.platform || 'youtube';
+  const existing = db.prepare(
+    'SELECT id FROM channel_snapshots WHERE channel_id = ? AND platform = ? AND snapshot_date = ?',
+  ).get(data.channel_id, platform, data.snapshot_date) as { id: number } | undefined;
+
+  if (existing) {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    if (data.subscriber_count !== undefined) { sets.push('subscriber_count = ?'); vals.push(data.subscriber_count); }
+    if (data.total_views !== undefined) { sets.push('total_views = ?'); vals.push(data.total_views); }
+    if (data.avg_engagement_rate !== undefined) { sets.push('avg_engagement_rate = ?'); vals.push(data.avg_engagement_rate); }
+    if (data.watch_time_hours !== undefined) { sets.push('watch_time_hours = ?'); vals.push(data.watch_time_hours); }
+    if (data.health_score !== undefined) { sets.push('health_score = ?'); vals.push(data.health_score); }
+    if (data.email_health_score !== undefined) { sets.push('email_health_score = ?'); vals.push(data.email_health_score); }
+    if (data.sponsor_ready_score !== undefined) { sets.push('sponsor_ready_score = ?'); vals.push(data.sponsor_ready_score); }
+    if (data.returning_viewer_pct !== undefined) { sets.push('returning_viewer_pct = ?'); vals.push(data.returning_viewer_pct); }
+    if (data.new_viewer_pct !== undefined) { sets.push('new_viewer_pct = ?'); vals.push(data.new_viewer_pct); }
+    if (data.notes !== undefined) { sets.push('notes = ?'); vals.push(data.notes); }
+    if (sets.length > 0) {
+      vals.push(existing.id);
+      db.prepare(`UPDATE channel_snapshots SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+  } else {
+    db.prepare(`
+      INSERT INTO channel_snapshots
+      (channel_id, platform, snapshot_date, subscriber_count, total_views,
+       avg_engagement_rate, watch_time_hours, health_score, email_health_score,
+       sponsor_ready_score, returning_viewer_pct, new_viewer_pct, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      data.channel_id, platform, data.snapshot_date,
+      data.subscriber_count ?? 0, data.total_views ?? 0,
+      data.avg_engagement_rate ?? 0, data.watch_time_hours ?? 0,
+      data.health_score ?? 0, data.email_health_score ?? 0,
+      data.sponsor_ready_score ?? 0, data.returning_viewer_pct ?? 0,
+      data.new_viewer_pct ?? 0, data.notes ?? '',
+    );
+  }
+
+  return db.prepare(
+    'SELECT * FROM channel_snapshots WHERE channel_id = ? AND platform = ? AND snapshot_date = ?',
+  ).get(data.channel_id, platform, data.snapshot_date) as ChannelSnapshot;
+}
+
+/** Get the most recent channel snapshot. */
+export function getLatestChannelSnapshot(channelId: string, platform = 'youtube'): ChannelSnapshot | null {
+  return db.prepare(
+    `SELECT * FROM channel_snapshots
+     WHERE channel_id = ? AND platform = ?
+     ORDER BY snapshot_date DESC LIMIT 1`,
+  ).get(channelId, platform) as ChannelSnapshot | null;
+}
+
+/** Get channel snapshot time series for dashboard/trend analysis. */
+export function getChannelSnapshotHistory(
+  channelId: string,
+  days = 90,
+  platform = 'youtube',
+): ChannelSnapshot[] {
+  return db.prepare(
+    `SELECT * FROM channel_snapshots
+     WHERE channel_id = ? AND platform = ?
+       AND created_at >= strftime('%s', 'now', ?)
+     ORDER BY snapshot_date ASC`,
+  ).all(channelId, platform, `-${days} days`) as ChannelSnapshot[];
 }
 
 // ── Mission Post-Mortem Logging ───────────────────────────────────────

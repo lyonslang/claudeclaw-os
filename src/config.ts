@@ -43,6 +43,10 @@ const envConfig = readEnvFile([
   'WARROOM_PORT',
   'STREAM_STRATEGY',
   'YOUTUBE_API_KEY',
+  'HEYGEN_API_KEY',
+  'YT_ANALYTICS_CLIENT_ID',
+  'YT_ANALYTICS_CLIENT_SECRET',
+  'YT_ANALYTICS_TOKEN_PATH',
 ]);
 
 // ── Multi-agent support ──────────────────────────────────────────────
@@ -194,6 +198,20 @@ export const GOOGLE_API_KEY =
 // YouTube Data API v3 key for God's Eye channel analysis
 export const YOUTUBE_API_KEY =
   process.env.YOUTUBE_API_KEY || envConfig.YOUTUBE_API_KEY || '';
+
+// HeyGen API key for Skinwalker avatar rendering
+export const HEYGEN_API_KEY =
+  process.env.HEYGEN_API_KEY || envConfig.HEYGEN_API_KEY || '';
+
+// YouTube Analytics API (OAuth2) — for return viewer rate + audience metrics
+// Requires a one-time auth flow: npx tsx scripts/yt-analytics-auth.ts
+export const YT_ANALYTICS_CLIENT_ID =
+  process.env.YT_ANALYTICS_CLIENT_ID || envConfig.YT_ANALYTICS_CLIENT_ID || '';
+export const YT_ANALYTICS_CLIENT_SECRET =
+  process.env.YT_ANALYTICS_CLIENT_SECRET || envConfig.YT_ANALYTICS_CLIENT_SECRET || '';
+export const YT_ANALYTICS_TOKEN_PATH = expandHome(
+  process.env.YT_ANALYTICS_TOKEN_PATH || envConfig.YT_ANALYTICS_TOKEN_PATH || '~/.config/youtube-analytics/token.json',
+);
 
 // Streaming strategy for progressive Telegram updates.
 // 'global-throttle' (default): edits a placeholder message with streamed text,

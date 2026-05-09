@@ -9,7 +9,7 @@
  *   node dist/pipeline-cli.js score @ChannelHandle --title "Star GOES OFF..." --hook "You won't believe" --niche comedy
  */
 
-import { analyzeChannel, analyzeAndScript, scoreConceptForChannel } from '../src/pipeline.js';
+import { analyzeChannel, analyzeAndScript, scoreConceptForChannel, produceVideo } from '../src/pipeline.js';
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -32,6 +32,7 @@ Commands:
   analyze <channel>   Fetch + analyze a YouTube channel
   script <channel>    Analyze + generate a production-ready script
   score <channel>     Score a concept against a channel's patterns
+  produce <channel>   Full loop: analyze → script → produce video
 
 Options:
   --niche <niche>           Content niche (default: general)
@@ -152,6 +153,38 @@ Examples:
         if (result.score.missing_patterns.length > 0) {
           console.log('Missing:');
           result.score.missing_patterns.forEach(p => console.log(`  - ${p}`));
+        }
+        console.log('='.repeat(60));
+      }
+
+    } else if (command === 'produce') {
+      const mechanism = (getFlag('--mechanism') || 'COUNTER_INTUITIVE_CAUSALITY') as any;
+      const result = await produceVideo(channel, niche, mechanism, { maxVideos, force });
+
+      if (jsonOnly) {
+        console.log(JSON.stringify({
+          production: result.production,
+          script: result.script,
+          brief: result.analysis.brief,
+        }, null, 2));
+      } else {
+        console.log('\n' + '='.repeat(60));
+        console.log(`SKINWALKER PRODUCTION: ${result.analysis.channel_name}`);
+        console.log('='.repeat(60));
+        console.log(`Status: ${result.production.status.toUpperCase()}`);
+        if (result.production.video_path) {
+          console.log(`Video: ${result.production.video_path}`);
+          console.log(`Thumbnail: ${result.production.thumbnail_path}`);
+          console.log(`Duration: ${Math.round(result.production.duration_seconds)}s`);
+        }
+        console.log(`Quality: ${result.production.quality_score}/100`);
+        console.log(`Cost: $${result.production.costs.total_usd.toFixed(2)} (voice: $${result.production.costs.voice_usd.toFixed(3)}, avatar: $${result.production.costs.avatar_usd.toFixed(2)})`);
+        console.log(`Render time: ${Math.round(result.production.render_time_seconds)}s`);
+        console.log('-'.repeat(60));
+        console.log(`Title: ${result.production.metadata.title}`);
+        console.log(`Tags: ${result.production.metadata.tags.slice(0, 10).join(', ')}`);
+        if (result.production.error) {
+          console.log(`Error: ${result.production.error}`);
         }
         console.log('='.repeat(60));
       }

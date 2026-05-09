@@ -16,9 +16,16 @@ import {
   getChannelDataFromHiveMind,
   preProductionScore,
   type PreProductionScoreResult,
-} from './gods-eye-brief.js';
+} from './gods-eye/index.js';
 import { generateScript, type ScriptOutput } from './scriptwriter.js';
 import { toHumanReadable } from './utils/bayesian-confidence.js';
+import { produce, type ProductionOutput } from './skinwalker.js';
+import {
+  isYouTubeAnalyticsConfigured,
+  fetchReturningViewerRate,
+  type ViewerTypeResult,
+} from './youtube-analytics.js';
+import { upsertChannelSnapshot } from './db.js';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -30,6 +37,7 @@ export interface AnalysisResult {
   from_cache: boolean;
   videos_analyzed: number;
   human_summary: string;
+  returning_viewers?: ViewerTypeResult;
 }
 
 export interface FullPipelineResult {
@@ -75,6 +83,28 @@ export async function analyzeChannel(
 
   console.log(`[PIPELINE] Analysis complete: ${brief.sample_size} videos, ${brief.confidence_level} confidence`);
 
+  // Step 5: Fetch returning viewer rate if YouTube Analytics OAuth2 is configured
+  let returningViewers: ViewerTypeResult | undefined;
+  if (isYouTubeAnalyticsConfigured()) {
+    try {
+      returningViewers = await fetchReturningViewerRate(channelId);
+      const today = new Date().toISOString().split('T')[0];
+      upsertChannelSnapshot({
+        channel_id: channelId,
+        snapshot_date: today,
+        subscriber_count: ingestResult.channel.subscriber_count,
+        total_views: ingestResult.channel.view_count,
+        returning_viewer_pct: returningViewers.returning_pct,
+        new_viewer_pct: returningViewers.new_pct,
+      });
+      console.log(
+        `[PIPELINE] Audience loyalty: ${returningViewers.returning_pct}% returning, ${returningViewers.new_pct}% new`,
+      );
+    } catch (err: any) {
+      console.warn(`[PIPELINE] YouTube Analytics fetch failed (non-fatal): ${err.message}`);
+    }
+  }
+
   return {
     channel_id: channelId,
     channel_name: ingestResult.channel.title,
@@ -83,6 +113,7 @@ export async function analyzeChannel(
     from_cache: ingestResult.fromCache,
     videos_analyzed: brief.sample_size,
     human_summary: humanSummary,
+    returning_viewers: returningViewers,
   };
 }
 
@@ -152,8 +183,41 @@ export async function scoreConceptForChannel(
   return { analysis, score };
 }
 
+/**
+ * Full production pipeline: analyze channel → generate script → produce video.
+ *
+ * The complete loop: channel URL → published video with voice, avatar, and branding.
+ */
+export async function produceVideo(
+  channelInput: string,
+  niche: string = 'general',
+  insightMechanism: 'COUNTER_INTUITIVE_CAUSALITY' | 'NARRATIVE_VOID' | 'PERSPECTIVE_SHIFT' = 'COUNTER_INTUITIVE_CAUSALITY',
+  opts: { maxVideos?: number; force?: boolean; colorGrade?: 'warm_cinematic' | 'cool_modern' | 'neutral' } = {}
+): Promise<{ analysis: AnalysisResult; script: ScriptOutput; production: ProductionOutput }> {
+  // Steps 1-5: Analyze + script
+  const pipelineResult = await analyzeAndScript(channelInput, niche, insightMechanism, opts);
+
+  // Step 6: Produce video from script
+  console.log(`[PIPELINE] Producing video with Skinwalker...`);
+  const production = await produce({
+    script: pipelineResult.script.script,
+    niche,
+    title: pipelineResult.script.title,
+    colorGrade: opts.colorGrade ?? 'warm_cinematic',
+  });
+
+  console.log(`[PIPELINE] Production ${production.status}: ${production.video_path ?? 'no output'}`);
+
+  return {
+    analysis: pipelineResult.analysis,
+    script: pipelineResult.script,
+    production,
+  };
+}
+
 export default {
   analyzeChannel,
   analyzeAndScript,
   scoreConceptForChannel,
+  produceVideo,
 };
