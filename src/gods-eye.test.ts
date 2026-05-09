@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('./config.js', () => ({ STORE_DIR: '/tmp/test-store' }));
 vi.mock('better-sqlite3', () => ({ default: vi.fn() }));
 
-import { generateGodsEyeBrief } from './gods-eye-brief.js';
+import { generateGodsEyeBrief } from './gods-eye/index.js';
 
 // ── Test fixtures ───────────────────────────────────────────────
 
