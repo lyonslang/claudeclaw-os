@@ -1245,6 +1245,51 @@ export function createBot(): Bot {
     );
   });
 
+  // /protocol99 — emergency halt (pauses tasks + cancels missions, bot stays alive)
+  bot.command('protocol99', async (ctx) => {
+    if (!isAuthorised(ctx.chat!.id)) return;
+    if (await replyIfLocked(ctx)) return;
+    const chatIdStr = ctx.chat!.id.toString();
+    const args = ctx.match?.trim() || '';
+
+    if (args.toLowerCase() === 'lift') {
+      const { liftProtocol99 } = await import('./db.js');
+      const result = liftProtocol99(AGENT_ID);
+      audit({ agentId: AGENT_ID, chatId: chatIdStr, action: 'command', detail: `Protocol 99 LIFTED: ${result.tasks_resumed} tasks resumed`, blocked: false });
+      await ctx.reply(`\u2705 Protocol 99 lifted. ${result.tasks_resumed} scheduled task(s) resumed.`);
+      return;
+    }
+
+    if (args.toLowerCase() === 'status') {
+      const { isProtocol99Active, getProtocol99History } = await import('./db.js');
+      const active = isProtocol99Active();
+      const history = getProtocol99History(3);
+      const lines = [
+        active ? '\ud83d\udea8 Protocol 99 is ACTIVE' : '\u2705 System RUNNING normally',
+        '',
+        ...history.map(h => {
+          const date = new Date(h.created_at * 1000).toLocaleString();
+          return `${h.detail.startsWith('ACTIVATED') ? '\ud83d\udd34' : '\ud83d\udfe2'} ${date}: ${h.detail}`;
+        }),
+      ];
+      await ctx.reply(lines.join('\n'));
+      return;
+    }
+
+    const reason = args || 'Manual halt via /protocol99';
+    const { activateProtocol99 } = await import('./db.js');
+    const result = activateProtocol99(reason, AGENT_ID);
+    audit({ agentId: AGENT_ID, chatId: chatIdStr, action: 'command', detail: `Protocol 99 ACTIVATED: ${reason}`, blocked: false });
+    await ctx.reply(
+      `\ud83d\udea8 PROTOCOL 99 ACTIVATED\n\n` +
+      `Reason: ${reason}\n` +
+      `Tasks paused: ${result.tasks_paused}\n` +
+      `Missions cancelled: ${result.missions_cancelled}\n\n` +
+      `To resume: /protocol99 lift\n` +
+      `To check status: /protocol99 status`,
+    );
+  });
+
   // /lock — manually lock the session
   bot.command('lock', async (ctx) => {
     if (!isAuthorised(ctx.chat!.id)) return;
@@ -1294,7 +1339,7 @@ export function createBot(): Bot {
   });
 
   // Text messages — and any slash commands not owned by this bot (skills, e.g. /todo /gmail)
-  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/memory', '/forget', '/pin', '/unpin', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/agents', '/delegate', '/lock', '/status']);
+  const OWN_COMMANDS = new Set(['/start', '/help', '/newchat', '/respin', '/voice', '/model', '/memory', '/forget', '/pin', '/unpin', '/chatid', '/wa', '/slack', '/dashboard', '/stop', '/agents', '/delegate', '/lock', '/status', '/protocol99']);
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
     const chatIdStr = ctx.chat!.id.toString();

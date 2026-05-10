@@ -132,10 +132,17 @@ export function checkKillPhrase(message: string): boolean {
 
 /**
  * Execute the emergency shutdown.
- * Stops all ClaudeClaw services and force-exits after a brief timeout.
+ * Persists Protocol 99 state to the DB before killing the process,
+ * so the system restarts in a halted state.
  */
 export function executeEmergencyKill(): void {
   logger.warn('EMERGENCY KILL activated');
+
+  // Persist kill state to DB before exit so tasks/missions stay paused on restart
+  try {
+    const { activateProtocol99 } = require('./db.js');
+    activateProtocol99('Emergency kill phrase triggered', 'security');
+  } catch { /* DB may not be initialized yet — still exit */ }
 
   // Force exit after 5s even if launchctl/systemctl hangs
   setTimeout(() => process.exit(1), 5000);

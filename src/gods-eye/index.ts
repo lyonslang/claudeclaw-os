@@ -27,3 +27,15 @@ export { preProductionScore } from './pre-production.js';
 
 // Dreaming layer
 export { runDreamCycle, getDreamLog } from './dreaming.js';
+
+// Governor (Sovereign Engine)
+export {
+  getNextPattern,
+  updatePatternPosterior,
+  registerInFlightVideo,
+  syncInFlightVideos,
+  processPatternDecay,
+  getGovernorStatus,
+  upsertHookPattern,
+} from '../governor.js';
+export type { HookPattern, GovernorSelection, GovernorStatus } from '../governor.js';

@@ -550,6 +550,47 @@ function createSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_youtube_visual_video ON youtube_visual_analysis(video_id);
     CREATE INDEX IF NOT EXISTS idx_youtube_visual_quality ON youtube_visual_analysis(avatar_quality DESC);
 
+    -- ── Sovereign Governor ──────────────────────────────────────────
+    -- Hook pattern Bayesian state for the multi-armed bandit Governor.
+    -- Composite PK isolates the same hook across YouTube/TikTok.
+
+    CREATE TABLE IF NOT EXISTS hook_patterns (
+      pattern_id        TEXT NOT NULL,
+      platform          TEXT NOT NULL,
+      pattern_logic     TEXT NOT NULL DEFAULT '',
+      alpha             REAL NOT NULL DEFAULT 1.0,
+      beta              REAL NOT NULL DEFAULT 1.0,
+      mean_engagement   REAL NOT NULL DEFAULT 0.0,
+      m2                REAL NOT NULL DEFAULT 0.0,
+      variance          REAL NOT NULL DEFAULT 0.0,
+      observation_count INTEGER NOT NULL DEFAULT 0,
+      decay_constant    REAL NOT NULL DEFAULT 0.95,
+      prior_source      TEXT NOT NULL DEFAULT 'observed',
+      trend_velocity    REAL NOT NULL DEFAULT 0.0,
+      last_decay_at     INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      last_observed_at  INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      created_at        INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      PRIMARY KEY (pattern_id, platform)
+    );
+    CREATE INDEX IF NOT EXISTS idx_hook_patterns_decay ON hook_patterns(last_decay_at);
+    CREATE INDEX IF NOT EXISTS idx_hook_patterns_platform ON hook_patterns(platform, observation_count DESC);
+
+    -- In-flight video tracking for the feedback loop.
+    -- Videos are queued at publish time, synced after maturity_hours.
+
+    CREATE TABLE IF NOT EXISTS in_flight_videos (
+      video_id          TEXT PRIMARY KEY,
+      pattern_id        TEXT NOT NULL,
+      platform          TEXT NOT NULL,
+      published_at      INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      maturity_hours    INTEGER NOT NULL DEFAULT 48,
+      is_processed      INTEGER NOT NULL DEFAULT 0,
+      retry_count       INTEGER NOT NULL DEFAULT 0,
+      last_attempted_at INTEGER,
+      FOREIGN KEY (pattern_id, platform) REFERENCES hook_patterns(pattern_id, platform)
+    );
+    CREATE INDEX IF NOT EXISTS idx_inflight_sync ON in_flight_videos(is_processed, retry_count, published_at);
+
     -- Recurring analysis requests (e.g., "every Monday analyze top 3 videos")
     CREATE TABLE IF NOT EXISTS standing_queries (
       id              TEXT PRIMARY KEY,
@@ -4550,6 +4591,102 @@ export function getChannelSnapshotHistory(
        AND created_at >= strftime('%s', 'now', ?)
      ORDER BY snapshot_date ASC`,
   ).all(channelId, platform, `-${days} days`) as ChannelSnapshot[];
+}
+
+// ── Protocol 99 — Emergency Kill Switch ─────────────────────────────
+
+export interface Protocol99State {
+  active: boolean;
+  reason: string;
+  activated_at: number;
+  tasks_paused: number;
+  missions_cancelled: number;
+}
+
+/**
+ * Activate Protocol 99: pause all scheduled tasks, cancel all queued/running
+ * missions, and log the event to the audit trail. Returns a summary of what
+ * was affected. Idempotent — safe to call multiple times.
+ */
+export function activateProtocol99(reason: string, agentId = 'operator'): Protocol99State {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = db.transaction(() => {
+    // Pause all active scheduled tasks
+    const taskResult = db.prepare(
+      `UPDATE scheduled_tasks SET status = 'paused' WHERE status = 'active'`,
+    ).run();
+
+    // Cancel all queued/running missions
+    const missionResult = db.prepare(
+      `UPDATE mission_tasks SET status = 'cancelled', completed_at = ? WHERE status IN ('queued', 'running')`,
+    ).run(now);
+
+    // Log to audit trail
+    db.prepare(
+      `INSERT INTO audit_log (agent_id, chat_id, action, detail, blocked, created_at)
+       VALUES (?, '', 'protocol_99', ?, 0, ?)`,
+    ).run(agentId, `ACTIVATED: ${reason}`, now);
+
+    return {
+      active: true,
+      reason,
+      activated_at: now,
+      tasks_paused: taskResult.changes,
+      missions_cancelled: missionResult.changes,
+    };
+  })();
+
+  return result;
+}
+
+/**
+ * Lift Protocol 99: resume all paused scheduled tasks and log the lift event.
+ * Returns the number of tasks resumed.
+ */
+export function liftProtocol99(agentId = 'operator'): { tasks_resumed: number } {
+  const now = Math.floor(Date.now() / 1000);
+
+  const result = db.transaction(() => {
+    const taskResult = db.prepare(
+      `UPDATE scheduled_tasks SET status = 'active' WHERE status = 'paused'`,
+    ).run();
+
+    db.prepare(
+      `INSERT INTO audit_log (agent_id, chat_id, action, detail, blocked, created_at)
+       VALUES (?, '', 'protocol_99', 'LIFTED: operations resumed', 0, ?)`,
+    ).run(agentId, now);
+
+    return { tasks_resumed: taskResult.changes };
+  })();
+
+  return result;
+}
+
+/**
+ * Check if Protocol 99 is currently active.
+ * Active = last protocol_99 audit entry is an ACTIVATED (not a LIFTED).
+ */
+export function isProtocol99Active(): boolean {
+  const last = db.prepare(
+    `SELECT detail FROM audit_log WHERE action = 'protocol_99' ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get() as { detail: string } | undefined;
+  if (!last) return false;
+  return last.detail.startsWith('ACTIVATED');
+}
+
+/** Get Protocol 99 activation/lift history. */
+export function getProtocol99History(limit = 20): Array<{
+  detail: string;
+  agent_id: string;
+  created_at: number;
+}> {
+  return db.prepare(
+    `SELECT detail, agent_id, created_at FROM audit_log
+     WHERE action = 'protocol_99'
+     ORDER BY created_at DESC, id DESC
+     LIMIT ?`,
+  ).all(limit) as Array<{ detail: string; agent_id: string; created_at: number }>;
 }
 
 // ── Mission Post-Mortem Logging ───────────────────────────────────────
